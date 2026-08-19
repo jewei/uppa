@@ -12,6 +12,7 @@ beforeEach(async () => {
     env.DB.prepare("DELETE FROM monitors"),
     env.DB.prepare("DELETE FROM history_5m"),
     env.DB.prepare("DELETE FROM history_1h"),
+    env.DB.prepare("DELETE FROM incidents"),
     env.DB.prepare(
       `UPDATE app_state
        SET payload = '{"version":1,"lastScheduledAt":null,"lastCleanupDay":null,"updatedAt":null,"monitors":{}}',
@@ -100,6 +101,51 @@ describe("public status", () => {
     expect(await second.json()).toMatchObject({
       monitors: [{ id: "cached", name: "Cached" }],
     });
+  });
+
+  it("publishes at most 20 incident snapshots without private diagnostics", async () => {
+    await env.DB.prepare(
+      `INSERT INTO monitors
+        (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+       VALUES ('main', 'Renamed', 'https://private.example/', 0, 0, 1, 2, 2)`,
+    ).run();
+    const insert = env.DB.prepare(
+      `INSERT INTO incidents
+        (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+         ended_reason, first_error, last_error, first_status_code, last_status_code)
+       VALUES (?, 'main', ?, ?, ?, ?, ?,
+               'Network request failed', 'Expected status 200-299, received 503',
+               NULL, 503)`,
+    );
+    await env.DB.batch(
+      Array.from({ length: 21 }, (_, index) =>
+        insert.bind(
+          `incident-${index}`,
+          index === 20 ? "Original Name" : `Snapshot ${index}`,
+          index * 1_000,
+          index * 1_000 + 100,
+          index === 20 ? null : index * 1_000 + 500,
+          index === 20 ? null : index % 2 === 0 ? "recovered" : "disabled",
+        ),
+      ),
+    );
+
+    const response = await SELF.fetch("https://status.example/api/status");
+    const text = await response.text();
+    const body = JSON.parse(text) as { recentIncidents: unknown[] };
+
+    expect(body.recentIncidents).toHaveLength(20);
+    expect(body.recentIncidents[0]).toEqual({
+      monitorName: "Original Name",
+      startedAt: 20_000,
+      confirmedAt: 20_100,
+      endedAt: null,
+      endedReason: null,
+    });
+    expect(body.recentIncidents.at(-1)).toMatchObject({ startedAt: 1_000 });
+    expect(text).not.toMatch(
+      /private\.example|Network request failed|received 503|monitor_id|first_status/u,
+    );
   });
 
   it("publishes monitoring truth and observed-check uptime without private state", async () => {

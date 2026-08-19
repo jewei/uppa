@@ -15,6 +15,14 @@ import { loadEnabledPublicMonitors } from "./db/monitors";
 
 export type HistoryRange = "24h" | "7d" | "30d";
 
+export interface PublicIncidentDto {
+  monitorName: string;
+  startedAt: number;
+  confirmedAt: number;
+  endedAt: number | null;
+  endedReason: "recovered" | "disabled" | "deleted" | null;
+}
+
 export interface PublicStatusDto {
   generatedAt: number;
   site: { name: string; description: string };
@@ -27,7 +35,7 @@ export interface PublicStatusDto {
     latencyMs: number | null;
     uptime: Record<HistoryRange, number | null>;
   }>;
-  recentIncidents: [];
+  recentIncidents: PublicIncidentDto[];
 }
 
 export interface PublicHistoryDto {
@@ -41,6 +49,14 @@ export interface PublicHistoryDto {
     failures: number;
     latency: { min: number | null; max: number | null; average: number | null };
   }>;
+}
+
+interface IncidentDatabaseRow {
+  monitor_name: unknown;
+  started_at: unknown;
+  confirmed_at: unknown;
+  ended_at: unknown;
+  ended_reason: unknown;
 }
 
 interface HistoryDatabaseRow {
@@ -77,14 +93,50 @@ function uptime(count: RollingCount): number | null {
   return count.checks === 0 ? null : (count.successes / count.checks) * 100;
 }
 
+async function loadRecentIncidents(
+  database: D1Database,
+): Promise<PublicIncidentDto[]> {
+  const result = await database
+    .prepare(
+      `SELECT monitor_name, started_at, confirmed_at, ended_at, ended_reason
+       FROM incidents
+       ORDER BY started_at DESC, id DESC
+       LIMIT 20`,
+    )
+    .all<IncidentDatabaseRow>();
+
+  return result.results.map((row) => {
+    if (
+      typeof row.monitor_name !== "string" ||
+      typeof row.started_at !== "number" ||
+      typeof row.confirmed_at !== "number" ||
+      (row.ended_at !== null && typeof row.ended_at !== "number") ||
+      (row.ended_reason !== null &&
+        row.ended_reason !== "recovered" &&
+        row.ended_reason !== "disabled" &&
+        row.ended_reason !== "deleted")
+    ) {
+      throw new Error("Invalid incident row");
+    }
+    return {
+      monitorName: row.monitor_name,
+      startedAt: row.started_at,
+      confirmedAt: row.confirmed_at,
+      endedAt: row.ended_at,
+      endedReason: row.ended_reason,
+    };
+  });
+}
+
 export async function statusDto(
   database: D1Database,
   site: { name: string; description: string },
   generatedAt: number,
 ): Promise<PublicStatusDto> {
-  const [monitors, state] = await Promise.all([
+  const [monitors, state, recentIncidents] = await Promise.all([
     loadEnabledPublicMonitors(database),
     loadPackedState(database),
+    loadRecentIncidents(database),
   ]);
   const publicMonitors = monitors.map((monitor) => {
     const runtime = state.monitors[monitor.id];
@@ -113,7 +165,7 @@ export async function statusDto(
     site,
     overallStatus,
     monitors: publicMonitors,
-    recentIncidents: [],
+    recentIncidents,
   };
 }
 

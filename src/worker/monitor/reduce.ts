@@ -26,6 +26,28 @@ export interface HistoryRow extends BucketAggregate {
   monitorId: string;
 }
 
+export interface IncidentOpen {
+  id: string;
+  monitorId: string;
+  monitorName: string;
+  startedAt: number;
+  confirmedAt: number;
+  firstError: string;
+  lastError: string;
+  firstStatusCode: number | null;
+  lastStatusCode: number | null;
+}
+
+export type IncidentEndReason = "recovered" | "disabled" | "deleted";
+
+export interface IncidentClosure {
+  id: string;
+  endedAt: number;
+  endedReason: IncidentEndReason;
+  lastError: string | null;
+  lastStatusCode: number | null;
+}
+
 export interface ReduceScheduledRunInput {
   state: AppStateV1;
   monitors: MonitorConfig[];
@@ -38,6 +60,8 @@ export interface ReducedScheduledRun {
   state: AppStateV1;
   fiveMinuteRows: HistoryRow[];
   hourlyRows: HistoryRow[];
+  incidentOpens: IncidentOpen[];
+  incidentClosures: IncidentClosure[];
 }
 
 function cloneRuntime(state: RuntimeState): RuntimeState {
@@ -124,6 +148,22 @@ function rows(monitorId: string, buckets: BucketAggregate[]): HistoryRow[] {
   return buckets.map((bucket) => ({ monitorId, ...bucket }));
 }
 
+function closeIncident(
+  state: RuntimeState,
+  endedAt: number,
+  endedReason: IncidentEndReason,
+): IncidentClosure | null {
+  return state.openIncidentId === null
+    ? null
+    : {
+        id: state.openIncidentId,
+        endedAt,
+        endedReason,
+        lastError: state.lastError,
+        lastStatusCode: state.lastStatusCode,
+      };
+}
+
 export function reduceScheduledRun(
   input: ReduceScheduledRunInput,
 ): ReducedScheduledRun {
@@ -133,10 +173,14 @@ export function reduceScheduledRun(
   const nextMonitors: Record<string, RuntimeState> = {};
   const fiveMinuteRows: HistoryRow[] = [];
   const hourlyRows: HistoryRow[] = [];
+  const incidentOpens: IncidentOpen[] = [];
+  const incidentClosures: IncidentClosure[] = [];
   const configIds = new Set(input.monitors.map((monitor) => monitor.id));
 
   for (const [monitorId, prior] of Object.entries(input.state.monitors)) {
     if (configIds.has(monitorId)) continue;
+    const closure = closeIncident(prior, input.scheduledTime, "deleted");
+    if (closure !== null) incidentClosures.push(closure);
     const advanced = advanceAggregates(cloneRuntime(prior), input.scheduledTime, null, true);
     fiveMinuteRows.push(...rows(monitorId, advanced.completedFiveMinutes));
     hourlyRows.push(...rows(monitorId, advanced.completedHours));
@@ -151,7 +195,11 @@ export function reduceScheduledRun(
     if (monitor.enabled && result === undefined) {
       throw new Error("Missing scheduled check result");
     }
-    if (!monitor.enabled) runtime = resetDisabled(runtime);
+    if (!monitor.enabled) {
+      const closure = closeIncident(runtime, input.scheduledTime, "disabled");
+      if (closure !== null) incidentClosures.push(closure);
+      runtime = resetDisabled(runtime);
+    }
 
     const advanced = advanceAggregates(
       runtime,
@@ -167,7 +215,37 @@ export function reduceScheduledRun(
       rolling: { ...runtime.rolling, throughBucketStart },
     };
     if (result !== null && result !== undefined) {
+      const prior = runtime;
       runtime = applyCheckResult(runtime, result, input.scheduledTime);
+      if (prior.status === "down" && result.ok) {
+        const closure = closeIncident(prior, input.scheduledTime, "recovered");
+        if (closure !== null) {
+          incidentClosures.push(closure);
+          runtime = { ...runtime, openIncidentId: null };
+        }
+      }
+      if (prior.status !== "down" && runtime.status === "down") {
+        if (
+          prior.tentativeFailureAt === null ||
+          prior.tentativeFailureError === null ||
+          result.ok
+        ) {
+          throw new Error("Invalid incident transition");
+        }
+        const id = `${monitor.id}:${input.scheduledTime}`;
+        incidentOpens.push({
+          id,
+          monitorId: monitor.id,
+          monitorName: monitor.name,
+          startedAt: prior.tentativeFailureAt,
+          confirmedAt: input.scheduledTime,
+          firstError: prior.tentativeFailureError,
+          lastError: result.error,
+          firstStatusCode: prior.tentativeFailureStatusCode,
+          lastStatusCode: result.statusCode,
+        });
+        runtime = { ...runtime, openIncidentId: id };
+      }
     }
 
     nextMonitors[monitor.id] = runtime;
@@ -184,5 +262,7 @@ export function reduceScheduledRun(
     },
     fiveMinuteRows,
     hourlyRows,
+    incidentOpens,
+    incidentClosures,
   };
 }

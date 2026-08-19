@@ -4,10 +4,10 @@
 
 **Blocked by:** 03 — Check monitors and publish uptime history.
 
-**Status:** ready-for-agent
+**Status:** complete
 
-- [ ] DOWN opens exactly one incident with first-failure start and second-failure confirmation times.
-- [ ] Continued DOWN performs no duplicate incident or steady-state incident write.
-- [ ] Recovery, disablement, and deletion close with the correct reason and latest safe details.
-- [ ] Recent public incident DTO exposes only name/times/reason and remains useful after rename/delete.
-- [ ] Database invariant and transition/integration tests plus `bun run check` pass.
+- [x] DOWN opens exactly one incident with first-failure start and second-failure confirmation times.
+- [x] Continued DOWN performs no duplicate incident or steady-state incident write.
+- [x] Recovery, disablement, and deletion close with the correct reason and latest safe details.
+- [x] Recent public incident DTO exposes only name/times/reason and remains useful after rename/delete.
+- [x] Database invariant and transition/integration tests plus `bun run check` pass.

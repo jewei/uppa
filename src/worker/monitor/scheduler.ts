@@ -5,6 +5,8 @@ import {
   reduceScheduledRun,
   type ExpiredRollingCounts,
   type HistoryRow,
+  type IncidentClosure,
+  type IncidentOpen,
   type MonitorConfig,
 } from "./reduce";
 import type { AppStateV1, ProbeResult } from "./state";
@@ -13,7 +15,7 @@ import { loadMonitorConfigs } from "../db/monitors";
 export const PROBE_CONCURRENCY = 5;
 export const SCHEDULER_LEASE_MS = 120_000;
 export const SCHEDULED_D1_QUERY_BUDGET = 40;
-const HISTORY_CHUNK_SIZE = 10;
+const PERSISTENCE_CHUNK_SIZE = 10;
 
 class QueryBudget {
   count = 0;
@@ -104,6 +106,76 @@ async function loadState(
   return decodeAppState(row.version, row.payload);
 }
 
+function incidentOpenStatements(
+  database: D1Database,
+  incidents: IncidentOpen[],
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = [];
+  for (let offset = 0; offset < incidents.length; offset += PERSISTENCE_CHUNK_SIZE) {
+    const chunk = incidents.slice(offset, offset + PERSISTENCE_CHUNK_SIZE);
+    const values = chunk
+      .map(() => "(?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)")
+      .join(", ");
+    const bindings = chunk.flatMap((incident) => [
+      incident.id,
+      incident.monitorId,
+      incident.monitorName,
+      incident.startedAt,
+      incident.confirmedAt,
+      incident.firstError,
+      incident.lastError,
+      incident.firstStatusCode,
+      incident.lastStatusCode,
+    ]);
+    statements.push(
+      database
+        .prepare(
+          `INSERT INTO incidents
+            (id, monitor_id, monitor_name, started_at, confirmed_at,
+             ended_at, ended_reason, first_error, last_error,
+             first_status_code, last_status_code)
+           VALUES ${values}`,
+        )
+        .bind(...bindings),
+    );
+  }
+  return statements;
+}
+
+function incidentClosureStatements(
+  database: D1Database,
+  incidents: IncidentClosure[],
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = [];
+  for (let offset = 0; offset < incidents.length; offset += PERSISTENCE_CHUNK_SIZE) {
+    const chunk = incidents.slice(offset, offset + PERSISTENCE_CHUNK_SIZE);
+    const values = chunk.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const bindings = chunk.flatMap((incident) => [
+      incident.id,
+      incident.endedAt,
+      incident.endedReason,
+      incident.lastError,
+      incident.lastStatusCode,
+    ]);
+    statements.push(
+      database
+        .prepare(
+          `WITH closures(id, ended_at, ended_reason, last_error, last_status_code) AS
+             (VALUES ${values})
+           UPDATE incidents
+           SET ended_at = (SELECT ended_at FROM closures WHERE closures.id = incidents.id),
+               ended_reason = (SELECT ended_reason FROM closures WHERE closures.id = incidents.id),
+               last_error = (SELECT last_error FROM closures WHERE closures.id = incidents.id),
+               last_status_code = (SELECT last_status_code FROM closures WHERE closures.id = incidents.id)
+           WHERE incidents.ended_at IS NULL
+             AND EXISTS (SELECT 1 FROM closures WHERE closures.id = incidents.id)`,
+        )
+        .bind(...bindings),
+    );
+  }
+  return statements;
+}
+
 function historyStatements(
   database: D1Database,
   table: "history_5m" | "history_1h",
@@ -111,8 +183,8 @@ function historyStatements(
   rows: HistoryRow[],
 ): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
-  for (let offset = 0; offset < rows.length; offset += HISTORY_CHUNK_SIZE) {
-    const chunk = rows.slice(offset, offset + HISTORY_CHUNK_SIZE);
+  for (let offset = 0; offset < rows.length; offset += PERSISTENCE_CHUNK_SIZE) {
+    const chunk = rows.slice(offset, offset + PERSISTENCE_CHUNK_SIZE);
     const values = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
     const bindings = chunk.flatMap((row) => [
       row.monitorId,
@@ -350,6 +422,8 @@ export async function runScheduled(
           );
         }
         const statements = [
+          ...incidentOpenStatements(input.database, reduced.incidentOpens),
+          ...incidentClosureStatements(input.database, reduced.incidentClosures),
           ...historyStatements(
             input.database,
             "history_5m",

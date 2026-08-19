@@ -148,6 +148,11 @@ describe("scheduled checks", () => {
     state.lastScheduledAt = scheduledTime - 60_000;
     for (let index = 0; index < 40; index += 1) {
       const runtime = createRuntimeState(scheduledTime - 10 * 60_000);
+      runtime.status = "up";
+      runtime.consecutiveFailures = 1;
+      runtime.tentativeFailureAt = scheduledTime - 60_000;
+      runtime.tentativeFailureError = "Network request failed";
+      runtime.tentativeFailureStatusCode = null;
       runtime.activeFiveMinute = {
         bucketStart: scheduledTime - 5 * 60_000,
         checks: 1,
@@ -184,7 +189,13 @@ describe("scheduled checks", () => {
         maximum = Math.max(maximum, active);
         await new Promise((resolve) => setTimeout(resolve, 1));
         active -= 1;
-        return { ok: true, statusCode: 200, latencyMs: 10 };
+        return {
+          ok: false,
+          reason: "network",
+          statusCode: null,
+          latencyMs: null,
+          error: "Network request failed",
+        };
       },
     });
 
@@ -197,6 +208,160 @@ describe("scheduled checks", () => {
     expect(
       await env.DB.prepare("SELECT COUNT(*) AS count FROM history_1h").first(),
     ).toEqual({ count: 40 });
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS count FROM incidents").first(),
+    ).toEqual({ count: 40 });
+  });
+
+  it("enforces one open incident per monitor in D1", async () => {
+    const insert = env.DB.prepare(
+      `INSERT INTO incidents
+        (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+         ended_reason, first_error, last_error, first_status_code, last_status_code)
+       VALUES (?, 'main', 'Main', 10, 20, NULL, NULL,
+               'Network request failed', 'Network request failed', NULL, NULL)`,
+    );
+    await insert.bind("first").run();
+
+    await expect(insert.bind("duplicate").run()).rejects.toThrow();
+
+    await env.DB.prepare(
+      `UPDATE incidents SET ended_at = 30, ended_reason = 'recovered'
+       WHERE id = 'first'`,
+    ).run();
+    await expect(insert.bind("second").run()).resolves.toMatchObject({
+      success: true,
+    });
+  });
+
+  it("rolls back monitoring state when an incident invariant aborts persistence", async () => {
+    await addMonitor();
+    await env.DB.prepare(
+      `INSERT INTO incidents
+        (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+         ended_reason, first_error, last_error, first_status_code, last_status_code)
+       VALUES ('existing', 'main', 'Main', 10, 20, NULL, NULL,
+               'Network request failed', 'Network request failed', NULL, NULL)`,
+    ).run();
+    const state = createAppState();
+    state.lastScheduledAt = 0;
+    state.monitors.main = {
+      ...createRuntimeState(0),
+      consecutiveFailures: 1,
+      tentativeFailureAt: 0,
+      tentativeFailureError: "Network request failed",
+    };
+    await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
+      .bind(encodeAppState(state))
+      .run();
+
+    await expect(
+      runScheduled({
+        database: env.DB,
+        scheduledTime: 60_000,
+        wallNow: () => 1_000_000,
+        token: "atomicity",
+        check: async () => ({
+          ok: false,
+          reason: "network",
+          statusCode: null,
+          latencyMs: null,
+          error: "Network request failed",
+        }),
+      }),
+    ).rejects.toThrow();
+
+    expect((await loadState()).lastScheduledAt).toBe(0);
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS count FROM incidents").first(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("closes open incidents when monitors are disabled or deleted", async () => {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO monitors
+          (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+         VALUES ('disabled', 'Disabled', 'https://disabled.example/', 0, 0, 1, 1, NULL)`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO monitors
+          (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+         VALUES ('deleted', 'Deleted', 'https://deleted.example/', 0, 0, 1, 1, 2)`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO incidents
+          (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+           ended_reason, first_error, last_error, first_status_code, last_status_code)
+         VALUES ('disabled-open', 'disabled', 'Disabled', 10, 20, NULL, NULL,
+                 'Network request failed', 'Network request failed', NULL, NULL)`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO incidents
+          (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+           ended_reason, first_error, last_error, first_status_code, last_status_code)
+         VALUES ('deleted-open', 'deleted', 'Deleted', 10, 20, NULL, NULL,
+                 'Network request failed', 'Expected status 200-299, received 503',
+                 NULL, 503)`,
+      ),
+    ]);
+    const state = createAppState();
+    state.monitors.disabled = {
+      ...createRuntimeState(0),
+      status: "down",
+      openIncidentId: "disabled-open",
+      lastError: "Network request failed",
+    };
+    state.monitors.deleted = {
+      ...createRuntimeState(0),
+      status: "down",
+      openIncidentId: "deleted-open",
+      lastError: "Expected status 200-299, received 503",
+      lastStatusCode: 503,
+    };
+    await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
+      .bind(encodeAppState(state))
+      .run();
+    const check = vi.fn();
+
+    await runScheduled({
+      database: env.DB,
+      scheduledTime: 300_000,
+      wallNow: () => 1_000_000,
+      token: "administrative-closure",
+      check,
+    });
+
+    expect(check).not.toHaveBeenCalled();
+    expect(
+      await env.DB.prepare(
+        `SELECT id, ended_at, ended_reason, last_error, last_status_code
+         FROM incidents ORDER BY id`,
+      ).all(),
+    ).toMatchObject({
+      results: [
+        {
+          id: "deleted-open",
+          ended_at: 300_000,
+          ended_reason: "deleted",
+          last_error: "Expected status 200-299, received 503",
+          last_status_code: 503,
+        },
+        {
+          id: "disabled-open",
+          ended_at: 300_000,
+          ended_reason: "disabled",
+          last_error: "Network request failed",
+          last_status_code: null,
+        },
+      ],
+    });
+    const persisted = await loadState();
+    expect(persisted.monitors.deleted).toBeUndefined();
+    expect(persisted.monitors.disabled).toMatchObject({
+      status: "pending",
+      openIncidentId: null,
+    });
   });
 
   it("expires all rolling-window rows crossed by the current interval", async () => {
@@ -328,7 +493,44 @@ describe("scheduled checks", () => {
       status: "down",
       consecutiveFailures: 2,
       tentativeFailureAt: 0,
+      openIncidentId: "main:60000",
     });
+    expect(
+      await env.DB.prepare(
+        `SELECT monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+                first_error, last_error, first_status_code, last_status_code
+         FROM incidents WHERE id = 'main:60000'`,
+      ).first(),
+    ).toEqual({
+      monitor_id: "main",
+      monitor_name: "Main",
+      started_at: 0,
+      confirmed_at: 60_000,
+      ended_at: null,
+      first_error: "Network request failed",
+      last_error: "Network request failed",
+      first_status_code: null,
+      last_status_code: null,
+    });
+
+    await runScheduled({
+      database: env.DB,
+      scheduledTime: 120_000,
+      wallNow: () => 1_120_000,
+      token: "continued-failure",
+      check: async () => ({
+        ok: false,
+        reason: "timeout",
+        statusCode: null,
+        latencyMs: null,
+        error: "Request timed out",
+      }),
+    });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count, last_error FROM incidents WHERE monitor_id = 'main'",
+      ).first(),
+    ).toEqual({ count: 1, last_error: "Network request failed" });
 
     await runScheduled({
       database: env.DB,
@@ -341,13 +543,25 @@ describe("scheduled checks", () => {
     expect((await loadState()).monitors.main).toMatchObject({
       status: "up",
       consecutiveFailures: 0,
+      openIncidentId: null,
       activeFiveMinute: { bucketStart: 300_000, checks: 1, successes: 1 },
+    });
+    expect(
+      await env.DB.prepare(
+        `SELECT ended_at, ended_reason, last_error, last_status_code
+         FROM incidents WHERE id = 'main:60000'`,
+      ).first(),
+    ).toEqual({
+      ended_at: 300_000,
+      ended_reason: "recovered",
+      last_error: "Request timed out",
+      last_status_code: null,
     });
     expect(
       await env.DB.prepare(
         `SELECT checks, successes, failures
          FROM history_5m WHERE monitor_id = 'main' AND bucket_start = 0`,
       ).first(),
-    ).toEqual({ checks: 2, successes: 0, failures: 2 });
+    ).toEqual({ checks: 3, successes: 0, failures: 3 });
   });
 });
