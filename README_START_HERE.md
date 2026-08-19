@@ -1,66 +1,64 @@
 # Start here
 
-This repository currently contains the reviewed implementation contract and Pi workflow for the Edge Uptime Monitor. It does not contain the application yet.
+This repository contains the Edge Uptime Monitor contract, local ticket plan, and the first runnable application slice.
 
-## Contract files
+## Sources of truth
 
 - `CONTEXT.md` — canonical product terms.
-- `SPEC.md` — v1 product behavior, architecture, limits, schema, security, and completion contract.
-- `AGENTS.md` — persistent working rules that Pi loads automatically.
-- `.pi/prompts/build-v1.md` — trusted project prompt template invoked as `/build-v1`.
-- `PI_PROMPT.md` — small pointer for invoking the same build request without template discovery.
+- `SPEC.md` — detailed v1 behavior and architecture contract.
+- `.scratch/edge-uptime-v1/spec.md` — user-facing implementation specification.
+- `.scratch/edge-uptime-v1/issues/` — one implementation ticket per file, with explicit blockers.
+- `AGENTS.md` — persistent working and safety rules.
+- `.pi/prompts/build-v1.md` — implements one unblocked ticket per fresh Pi session.
 
-Bun is the required package manager and script runner. The implementation must not introduce npm, pnpm, Yarn, or their lockfiles.
+Bun is the only package manager and script runner.
 
-## Before `/build-v1`
+## Implementation workflow
 
-Install current Bun and Pi, then put the contract under version control so the implementation diff is reviewable:
-
-```sh
-bun --version
-pi --version
-git init
-git add AGENTS.md CONTEXT.md SPEC.md README_START_HERE.md PI_PROMPT.md .pi/prompts/build-v1.md
-git commit -m "docs: define uptime monitor v1"
-```
-
-The commit is strongly recommended but optional. Review the files before committing them.
-
-Start Pi from this directory. Project-local prompt templates load only after the project is trusted:
-
-```sh
-pi
-```
-
-If prompted, trust the project and restart Pi. If Pi was already running when these files changed, run `/reload`. Then invoke:
+Start Pi from this trusted project and invoke:
 
 ```text
 /build-v1
 ```
 
-Alternative without project prompt discovery:
+One invocation selects the lowest-numbered unblocked ticket, implements it test-first, reviews it, runs `bun run check`, marks it complete, and commits it. It intentionally stops after one ticket. Run `/clear` before invoking `/build-v1` for the next ticket so each slice gets a fresh context.
+
+Alternative without prompt-template discovery:
 
 ```sh
 pi @PI_PROMPT.md
 ```
 
-## What the build may and may not do
+If Pi was already running when prompt/context files changed, run `/reload` first.
 
-The build prompt may install local dependencies with Bun, initialize local Git if absent, create source/config/migrations, apply local D1 migrations, run tests/builds, and start local development for a smoke test.
+## Current local commands
 
-It must not create production Cloudflare resources, request your credentials, run remote migrations, or deploy. The finished `README.md` will give you reviewed commands to perform those steps yourself.
+```sh
+bun install
+bun run dev
+bun run lint
+bun run typecheck
+bun run test
+bun run build
+bun run check
+bun run db:migrate:local
+```
+
+## Safety boundary
+
+Ticket implementation may install local Bun dependencies, edit code/migrations, apply local D1 migrations, and smoke-test local development. It must not create production Cloudflare resources, request credentials, run remote migrations, or deploy. Final operator/deployment documentation is delivered by the last ticket.
 
 ## Review checkpoints
 
-Before accepting the build:
+For every ticket:
 
-1. `bun run check` passes.
-2. A fresh local D1 migration succeeds.
-3. Local Worker + SPA routing is smoke-tested.
-4. `git status`/diff contains no secret, private monitor URL, generated junk, or non-Bun lockfile.
-5. The implementation report names any platform-driven spec correction rather than silently deviating.
+1. its acceptance criteria are actually verified,
+2. `bun run check` passes,
+3. required local migration/smoke checks pass,
+4. tracked and untracked files contain no private URL, secret, generated junk, or non-Bun lockfile,
+5. platform-driven deviations are recorded in `SPEC.md`, not silently implemented.
 
 ## Pi references
 
-- Context files and project trust: https://pi.dev/docs/latest/quickstart
+- Context and project trust: https://pi.dev/docs/latest/quickstart
 - Prompt templates: https://pi.dev/docs/latest/prompt-templates
