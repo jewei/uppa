@@ -9,6 +9,30 @@ function response(
 }
 
 describe("scheduled check probe", () => {
+  it("calls the runtime fetch function without rebinding its receiver", async () => {
+    const runtimeFetch = vi.fn(function (this: unknown): Promise<Response> {
+      if (this !== undefined) throw new TypeError("Illegal invocation");
+      return Promise.resolve(response(200));
+    });
+    vi.stubGlobal("fetch", runtimeFetch);
+    vi.resetModules();
+
+    try {
+      const { probe: runtimeProbe } = await import(
+        "../../src/worker/monitor/probe"
+      );
+
+      await expect(runtimeProbe("https://example.com/")).resolves.toMatchObject({
+        ok: true,
+        statusCode: 200,
+      });
+      expect(runtimeFetch).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
   it("uses one manual-redirect GET and measures time to headers", async () => {
     const cancel = vi.fn(async () => undefined);
     const fetcher = vi.fn(async () => response(204, cancel));

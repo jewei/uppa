@@ -9,7 +9,7 @@ export interface ProbeDependencies {
 }
 
 const defaultDependencies: ProbeDependencies = {
-  fetcher: fetch,
+  fetcher: (input, init) => fetch(input, init),
   monotonicNow: () => performance.now(),
   timeoutMs: PROBE_TIMEOUT_MS,
 };
