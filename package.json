@@ -1,0 +1,28 @@
+{
+  "name": "edge-uptime-monitor",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "dev": "vite",
+    "lint": "eslint .",
+    "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.web.json && tsc -p tsconfig.node.json",
+    "test": "vitest run",
+    "build": "vite build",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
+    "db:migrate:local": "wrangler d1 migrations apply edge-uptime --local"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.53.0",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260819.1",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "eslint": "^10.8.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.124.0"
+  }
+}

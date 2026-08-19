@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="description" content="Current service availability" />
+    <title>System Status</title>
+    <link rel="stylesheet" href="/src/web/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <p class="eyebrow">Service health</p>
+        <h1 id="site-name">System Status</h1>
+        <p id="site-description" class="description">Current service availability</p>
+      </header>
+
+      <section class="summary" aria-labelledby="summary-title">
+        <div>
+          <p class="label">Current status</p>
+          <h2 id="summary-title">Checking status…</h2>
+        </div>
+        <span id="status-mark" class="status-mark" aria-hidden="true"></span>
+      </section>
+
+      <section aria-labelledby="monitors-title">
+        <div class="section-heading">
+          <h2 id="monitors-title">Monitors</h2>
+          <p id="generated-at" class="muted" aria-live="polite"></p>
+        </div>
+        <div id="monitor-content" aria-live="polite">
+          <p class="panel muted">Loading monitors…</p>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/src/web/main.ts"></script>
+  </body>
+</html>

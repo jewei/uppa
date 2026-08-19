@@ -1,0 +1,61 @@
+export interface Env {
+  DB: D1Database;
+  SITE_NAME: string;
+  SITE_DESCRIPTION: string;
+  WEBHOOK_URL?: string;
+}
+
+const API_SECURITY_HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+} as const;
+
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, {
+    status,
+    headers: API_SECURITY_HEADERS,
+  });
+}
+
+function handleStatus(env: Env): Response {
+  return json({
+    generatedAt: Date.now(),
+    site: {
+      name: env.SITE_NAME,
+      description: env.SITE_DESCRIPTION,
+    },
+    overallStatus: "unknown",
+    monitors: [],
+    recentIncidents: [],
+  });
+}
+
+function handleRequest(request: Request, env: Env): Response {
+  const url = new URL(request.url);
+
+  if (request.method === "GET" && url.pathname === "/api/status") {
+    return handleStatus(env);
+  }
+
+  if (url.pathname.startsWith("/api/")) {
+    return json(
+      { error: { code: "not_found", message: "API route not found" } },
+      404,
+    );
+  }
+
+  return json(
+    { error: { code: "not_found", message: "Resource not found" } },
+    404,
+  );
+}
+
+export default {
+  fetch: handleRequest,
+
+  scheduled(): void {
+    // Scheduled monitoring is introduced by ticket 03.
+  },
+} satisfies ExportedHandler<Env>;

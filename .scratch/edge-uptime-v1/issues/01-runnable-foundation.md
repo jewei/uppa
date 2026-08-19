@@ -4,10 +4,10 @@
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** complete
 
-- [ ] Bun lockfile, strict TypeScript, Vite/Workers configuration, and required quality scripts exist without npm/pnpm/Yarn artifacts.
-- [ ] Initial migration creates and seeds the complete v1 schema from empty local D1.
-- [ ] Native Worker routing returns a stable empty `/api/status` response and JSON API 404s.
-- [ ] Static SPA fallback, production security headers, and a restrained empty/loading/error page work locally.
-- [ ] Worker integration test, frontend build, migration smoke test, and `bun run check` pass.
+- [x] Bun lockfile, strict TypeScript, Vite/Workers configuration, and required quality scripts exist without npm/pnpm/Yarn artifacts.
+- [x] Initial migration creates and seeds the complete v1 schema from empty local D1.
+- [x] Native Worker routing returns a stable empty `/api/status` response and JSON API 404s.
+- [x] Static SPA fallback, production security headers, and a restrained empty/loading/error page work locally.
+- [x] Worker integration test, frontend build, migration smoke test, and `bun run check` pass.
