@@ -1,7 +1,10 @@
 import { applyD1Migrations, env } from "cloudflare:test";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { decodeAppState, encodeAppState } from "../src/worker/monitor/app-state";
-import { runScheduled } from "../src/worker/monitor/scheduler";
+import {
+  runScheduled,
+  type WebhookRuntime,
+} from "../src/worker/monitor/scheduler";
 import { createAppState, createRuntimeState } from "../src/worker/monitor/state";
 
 beforeAll(async () => {
@@ -131,6 +134,241 @@ describe("scheduled checks", () => {
     });
   });
 
+  it("commits a DOWN payload before a failed delivery is retried", async () => {
+    await addMonitor();
+    const state = createAppState();
+    state.monitors.main = {
+      ...createRuntimeState(0),
+      status: "up",
+      consecutiveFailures: 1,
+      tentativeFailureAt: 1_000,
+      tentativeFailureError: "Network request failed",
+    };
+    await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
+      .bind(encodeAppState(state))
+      .run();
+    const send = vi.fn(async () => {
+      expect(
+        await env.DB.prepare(
+          "SELECT COUNT(*) AS count FROM notification_outbox",
+        ).first(),
+      ).toEqual({ count: 1 });
+      expect((await loadState()).monitors.main?.status).toBe("down");
+      throw new Error("delivery failed");
+    });
+
+    const result = await runScheduled({
+      database: env.DB,
+      scheduledTime: 2_000,
+      wallNow: () => 10_000,
+      token: "notification-run",
+      check: async () => ({
+        ok: false,
+        reason: "network",
+        statusCode: null,
+        latencyMs: null,
+        error: "Network request failed",
+      }),
+      webhook: {
+        url: "https://notifications.invalid/endpoint",
+        send,
+        terminalFailure: vi.fn(),
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "completed", externalFetches: 2 });
+    expect(result.d1Statements).toBeLessThanOrEqual(40);
+    expect((await loadState()).monitors.main?.status).toBe("down");
+    expect(send).toHaveBeenCalledOnce();
+    const row = await env.DB.prepare(
+      `SELECT id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at
+       FROM notification_outbox`,
+    ).first<{
+      id: string;
+      created_at: number;
+      payload: string;
+      attempts: number;
+      next_attempt_at: number;
+      sent_at: number | null;
+      failed_at: number | null;
+    }>();
+    expect(row).toMatchObject({
+      id: "notification-run:notifications",
+      created_at: 2_000,
+      attempts: 1,
+      next_attempt_at: 70_000,
+      sent_at: null,
+      failed_at: null,
+    });
+    expect(row?.payload).toBe(
+      JSON.stringify({
+        version: 1,
+        type: "uptime.state_changes",
+        createdAt: "1970-01-01T00:00:02.000Z",
+        changes: [
+          {
+            monitorName: "Main",
+            status: "down",
+            startedAt: "1970-01-01T00:00:01.000Z",
+            changedAt: "1970-01-01T00:00:02.000Z",
+          },
+        ],
+      }),
+    );
+    expect(row?.payload).not.toMatch(/https?:|Network request failed|monitorId/u);
+  });
+
+  it("batches same-run DOWN and RECOVERED changes into one payload", async () => {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO monitors
+          (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+         VALUES ('down', 'Down service', 'https://down.example/', 1, 0, 1, 1, NULL)`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO monitors
+          (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+         VALUES ('recover', 'Recovered service', 'https://recover.example/', 1, 1, 1, 1, NULL)`,
+      ),
+      env.DB.prepare(
+        `INSERT INTO incidents
+          (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+           ended_reason, first_error, last_error, first_status_code, last_status_code)
+         VALUES ('recover-open', 'recover', 'Recovered service', 500, 1_000,
+                 NULL, NULL, 'Network request failed', 'Network request failed',
+                 NULL, NULL)`,
+      ),
+    ]);
+    const state = createAppState();
+    state.monitors.down = {
+      ...createRuntimeState(0),
+      status: "up",
+      consecutiveFailures: 1,
+      tentativeFailureAt: 1_000,
+      tentativeFailureError: "Network request failed",
+    };
+    state.monitors.recover = {
+      ...createRuntimeState(0),
+      status: "down",
+      consecutiveFailures: 2,
+      tentativeFailureAt: 500,
+      tentativeFailureError: "Network request failed",
+      openIncidentId: "recover-open",
+      lastError: "Network request failed",
+    };
+    await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
+      .bind(encodeAppState(state))
+      .run();
+    const send = vi.fn<WebhookRuntime["send"]>(async () => "success");
+
+    await runScheduled({
+      database: env.DB,
+      scheduledTime: 2_000,
+      wallNow: () => 10_000,
+      token: "batch-run",
+      check: async (monitor) =>
+        monitor.id === "down"
+          ? {
+              ok: false,
+              reason: "network",
+              statusCode: null,
+              latencyMs: null,
+              error: "Network request failed",
+            }
+          : { ok: true, statusCode: 200, latencyMs: 10 },
+      webhook: {
+        url: "https://notifications.invalid/endpoint",
+        send,
+        terminalFailure: vi.fn(),
+      },
+    });
+
+    expect(send).toHaveBeenCalledOnce();
+    const payload = JSON.parse(send.mock.calls[0]?.[1] ?? "null") as {
+      changes: unknown[];
+    };
+    expect(payload.changes).toEqual([
+      {
+        monitorName: "Down service",
+        status: "down",
+        startedAt: "1970-01-01T00:00:01.000Z",
+        changedAt: "1970-01-01T00:00:02.000Z",
+      },
+      {
+        monitorName: "Recovered service",
+        status: "recovered",
+        startedAt: "1970-01-01T00:00:00.500Z",
+        changedAt: "1970-01-01T00:00:02.000Z",
+      },
+    ]);
+    expect(
+      await env.DB.prepare("SELECT COUNT(*) AS count FROM notification_outbox").first(),
+    ).toEqual({ count: 1 });
+  });
+
+  it("delivers at most four due rows concurrently and persists each outcome", async () => {
+    const insert = env.DB.prepare(
+      `INSERT INTO notification_outbox
+        (id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at)
+       VALUES (?, ?, ?, ?, 0, NULL, NULL)`,
+    );
+    await env.DB.batch([
+      insert.bind("row-0", 0, '{"row":0}', 0),
+      insert.bind("row-1", 1, '{"row":1}', 0),
+      insert.bind("row-2", 2, '{"row":2}', 4),
+      insert.bind("row-3", 3, '{"row":3}', 19),
+      insert.bind("row-4", 4, '{"row":4}', 0),
+    ]);
+    let active = 0;
+    let maximum = 0;
+    const terminalFailure = vi.fn();
+
+    const result = await runScheduled({
+      database: env.DB,
+      scheduledTime: 300_000,
+      wallNow: () => 1_000,
+      token: "delivery-run",
+      check: vi.fn(),
+      webhook: {
+        url: "https://notifications.invalid/endpoint",
+        send: async (_url, payload) => {
+          active += 1;
+          maximum = Math.max(maximum, active);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          active -= 1;
+          return payload === '{"row":0}' ? "success" : "failure";
+        },
+        terminalFailure,
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "completed", externalFetches: 4 });
+    expect(result.d1Statements).toBeLessThanOrEqual(40);
+    expect(maximum).toBe(4);
+    expect(terminalFailure).toHaveBeenCalledOnce();
+    expect(terminalFailure).toHaveBeenCalledWith("row-3");
+    expect(
+      await env.DB.prepare(
+        `SELECT id, attempts, next_attempt_at, sent_at, failed_at
+         FROM notification_outbox ORDER BY id`,
+      ).all(),
+    ).toMatchObject({
+      results: [
+        { id: "row-0", attempts: 0, next_attempt_at: 0, sent_at: 1_000, failed_at: null },
+        { id: "row-1", attempts: 1, next_attempt_at: 61_000, sent_at: null, failed_at: null },
+        {
+          id: "row-2",
+          attempts: 5,
+          next_attempt_at: 21_601_000,
+          sent_at: null,
+          failed_at: null,
+        },
+        { id: "row-3", attempts: 20, next_attempt_at: 0, sent_at: null, failed_at: 1_000 },
+        { id: "row-4", attempts: 0, next_attempt_at: 0, sent_at: null, failed_at: null },
+      ],
+    });
+  });
+
   it("handles the combined 40-monitor rollover inside both hard budgets", async () => {
     const insert = env.DB.prepare(
       `INSERT INTO monitors
@@ -140,6 +378,16 @@ describe("scheduled checks", () => {
     await env.DB.batch(
       Array.from({ length: 40 }, (_, index) =>
         insert.bind(`monitor-${index}`, `Monitor ${index}`, `https://example-${index}.com/`),
+      ),
+    );
+    const outboxInsert = env.DB.prepare(
+      `INSERT INTO notification_outbox
+        (id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at)
+       VALUES (?, ?, '{}', 0, 0, NULL, NULL)`,
+    );
+    await env.DB.batch(
+      Array.from({ length: 4 }, (_, index) =>
+        outboxInsert.bind(`pending-${index}`, index),
       ),
     );
     const hour = 60 * 60_000;
@@ -197,9 +445,14 @@ describe("scheduled checks", () => {
           error: "Network request failed",
         };
       },
+      webhook: {
+        url: "https://notifications.invalid/endpoint",
+        send: async () => "success",
+        terminalFailure: vi.fn(),
+      },
     });
 
-    expect(result).toMatchObject({ outcome: "completed", externalFetches: 40 });
+    expect(result).toMatchObject({ outcome: "completed", externalFetches: 44 });
     expect(result.d1Statements).toBeLessThanOrEqual(40);
     expect(maximum).toBe(5);
     expect(
@@ -211,6 +464,14 @@ describe("scheduled checks", () => {
     expect(
       await env.DB.prepare("SELECT COUNT(*) AS count FROM incidents").first(),
     ).toEqual({ count: 40 });
+    expect(
+      await env.DB.prepare(
+        `SELECT
+           SUM(CASE WHEN sent_at IS NOT NULL THEN 1 ELSE 0 END) AS sent,
+           SUM(CASE WHEN sent_at IS NULL AND failed_at IS NULL THEN 1 ELSE 0 END) AS pending
+         FROM notification_outbox`,
+      ).first(),
+    ).toEqual({ sent: 4, pending: 1 });
   });
 
   it("enforces one open incident per monitor in D1", async () => {
@@ -430,6 +691,14 @@ describe("scheduled checks", () => {
           (monitor_id, hour_start, checks, successes, failures, latency_sum, latency_min, latency_max)
          VALUES ('main', 0, 1, 1, 0, 1, 1, 1)`,
       ),
+      env.DB.prepare(
+        `INSERT INTO notification_outbox
+          (id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at)
+         VALUES ('old-sent', 0, '{}', 0, 0, 0, NULL),
+                ('recent-sent', ?, '{}', 0, 0, ?, NULL),
+                ('old-failed', 0, '{}', 20, 0, NULL, 0),
+                ('recent-failed', ?, '{}', 20, 0, NULL, ?)`,
+      ).bind(30 * day, 30 * day, 2 * day, 2 * day),
     ]);
 
     await runScheduled({
@@ -447,6 +716,13 @@ describe("scheduled checks", () => {
       await env.DB.prepare("SELECT COUNT(*) AS count FROM history_1h").first(),
     ).toEqual({ count: 0 });
     expect((await loadState()).lastCleanupDay).toBe(31 * day);
+    expect(
+      await env.DB.prepare(
+        "SELECT id FROM notification_outbox ORDER BY id",
+      ).all(),
+    ).toMatchObject({
+      results: [{ id: "recent-failed" }, { id: "recent-sent" }],
+    });
   });
 
   it("writes one hourly aggregate from twelve completed five-minute buckets", async () => {
@@ -563,5 +839,10 @@ describe("scheduled checks", () => {
          FROM history_5m WHERE monitor_id = 'main' AND bucket_start = 0`,
       ).first(),
     ).toEqual({ checks: 3, successes: 0, failures: 3 });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM notification_outbox",
+      ).first(),
+    ).toEqual({ count: 0 });
   });
 });

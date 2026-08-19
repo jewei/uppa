@@ -38,7 +38,16 @@ describe("scheduled run reduction", () => {
       expired: new Map(),
     });
 
+    expect(first.notificationChanges).toEqual([]);
     expect(first.incidentOpens).toEqual([]);
+    expect(confirmed.notificationChanges).toEqual([
+      {
+        monitorName: "Main API",
+        status: "down",
+        startedAt: 1_000,
+        changedAt: 2_000,
+      },
+    ]);
     expect(confirmed.incidentOpens).toEqual([
       {
         id: "main:2000",
@@ -88,6 +97,15 @@ describe("scheduled run reduction", () => {
 
     expect(continued.incidentOpens).toEqual([]);
     expect(continued.incidentClosures).toEqual([]);
+    expect(continued.notificationChanges).toEqual([]);
+    expect(recovered.notificationChanges).toEqual([
+      {
+        monitorName: "Main",
+        status: "recovered",
+        startedAt: 1_000,
+        changedAt: 4_000,
+      },
+    ]);
     expect(recovered.incidentClosures).toEqual([
       {
         id: "main:2000",
@@ -150,6 +168,7 @@ describe("scheduled run reduction", () => {
       lastCheckedAt: null,
     });
     expect(reduced.state.monitors.deleted).toBeUndefined();
+    expect(reduced.notificationChanges).toEqual([]);
     expect(reduced.incidentClosures).toEqual([
       {
         id: "deleted-incident",

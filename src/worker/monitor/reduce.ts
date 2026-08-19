@@ -48,6 +48,13 @@ export interface IncidentClosure {
   lastStatusCode: number | null;
 }
 
+export interface NotificationChange {
+  monitorName: string;
+  status: "down" | "recovered";
+  startedAt: number;
+  changedAt: number;
+}
+
 export interface ReduceScheduledRunInput {
   state: AppStateV1;
   monitors: MonitorConfig[];
@@ -62,6 +69,7 @@ export interface ReducedScheduledRun {
   hourlyRows: HistoryRow[];
   incidentOpens: IncidentOpen[];
   incidentClosures: IncidentClosure[];
+  notificationChanges: NotificationChange[];
 }
 
 function cloneRuntime(state: RuntimeState): RuntimeState {
@@ -175,6 +183,7 @@ export function reduceScheduledRun(
   const hourlyRows: HistoryRow[] = [];
   const incidentOpens: IncidentOpen[] = [];
   const incidentClosures: IncidentClosure[] = [];
+  const notificationChanges: NotificationChange[] = [];
   const configIds = new Set(input.monitors.map((monitor) => monitor.id));
 
   for (const [monitorId, prior] of Object.entries(input.state.monitors)) {
@@ -220,7 +229,16 @@ export function reduceScheduledRun(
       if (prior.status === "down" && result.ok) {
         const closure = closeIncident(prior, input.scheduledTime, "recovered");
         if (closure !== null) {
+          if (prior.tentativeFailureAt === null) {
+            throw new Error("Invalid recovery transition");
+          }
           incidentClosures.push(closure);
+          notificationChanges.push({
+            monitorName: monitor.name,
+            status: "recovered",
+            startedAt: prior.tentativeFailureAt,
+            changedAt: input.scheduledTime,
+          });
           runtime = { ...runtime, openIncidentId: null };
         }
       }
@@ -244,6 +262,12 @@ export function reduceScheduledRun(
           firstStatusCode: prior.tentativeFailureStatusCode,
           lastStatusCode: result.statusCode,
         });
+        notificationChanges.push({
+          monitorName: monitor.name,
+          status: "down",
+          startedAt: prior.tentativeFailureAt,
+          changedAt: input.scheduledTime,
+        });
         runtime = { ...runtime, openIncidentId: id };
       }
     }
@@ -264,5 +288,6 @@ export function reduceScheduledRun(
     hourlyRows,
     incidentOpens,
     incidentClosures,
+    notificationChanges,
   };
 }

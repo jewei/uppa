@@ -1,4 +1,5 @@
 import { historyDto, statusDto, type HistoryRange } from "./public-api";
+import { sendWebhook } from "./monitor/outbox";
 import { probe } from "./monitor/probe";
 import { runScheduled } from "./monitor/scheduler";
 
@@ -141,6 +142,23 @@ export default {
         wallNow: () => Date.now(),
         token: crypto.randomUUID(),
         check: (monitor) => probe(monitor.url),
+        ...(env.WEBHOOK_URL === undefined
+          ? {}
+          : {
+              webhook: {
+                url: env.WEBHOOK_URL,
+                send: sendWebhook,
+                terminalFailure: (outboxId: string) => {
+                  console.error(
+                    JSON.stringify({
+                      event: "webhook_terminal_failure",
+                      outboxId,
+                      attempts: 20,
+                    }),
+                  );
+                },
+              },
+            }),
       }).then(() => undefined),
     );
   },

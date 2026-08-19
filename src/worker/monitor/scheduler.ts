@@ -1,5 +1,6 @@
 import { FIVE_MINUTES_MS, ONE_HOUR_MS } from "./aggregate";
 import { encodeAppState, decodeAppState } from "./app-state";
+import { createOutboxEntry } from "./outbox";
 import { mapConcurrent } from "./pool";
 import {
   reduceScheduledRun,
@@ -11,6 +12,13 @@ import {
 } from "./reduce";
 import type { AppStateV1, ProbeResult } from "./state";
 import { loadMonitorConfigs } from "../db/monitors";
+import {
+  deliverPendingOutbox,
+  prepareOutboxInsert,
+  type WebhookRuntime,
+} from "../db/outbox";
+
+export type { WebhookRuntime } from "../db/outbox";
 
 export const PROBE_CONCURRENCY = 5;
 export const SCHEDULER_LEASE_MS = 120_000;
@@ -34,6 +42,7 @@ export interface RunScheduledInput {
   wallNow(): number;
   token: string;
   check(monitor: MonitorConfig): Promise<ProbeResult>;
+  webhook?: WebhookRuntime;
 }
 
 export interface ScheduledRunResult {
@@ -376,8 +385,9 @@ export async function runScheduled(
           return input.check(monitor);
         },
       );
+      const renewalWallTime = input.wallNow();
       if (
-        !(await renewLease(input.database, input.token, input.wallNow(), budget))
+        !(await renewLease(input.database, input.token, renewalWallTime, budget))
       ) {
         outcome = "lost-lease";
       } else {
@@ -421,6 +431,19 @@ export async function runScheduled(
               .bind(cleanupDay - 30 * dayMs),
           );
         }
+        const outboxEntry =
+          input.webhook === undefined
+            ? null
+            : createOutboxEntry(
+                `${input.token}:notifications`,
+                reduced.notificationChanges,
+                input.scheduledTime,
+                renewalWallTime,
+              );
+        const outboxStatements =
+          outboxEntry === null
+            ? []
+            : [prepareOutboxInsert(input.database, outboxEntry)];
         const statements = [
           ...incidentOpenStatements(input.database, reduced.incidentOpens),
           ...incidentClosureStatements(input.database, reduced.incidentClosures),
@@ -437,6 +460,7 @@ export async function runScheduled(
             reduced.hourlyRows,
           ),
           ...cleanupStatements,
+          ...outboxStatements,
           input.database
             .prepare(
               `UPDATE app_state
@@ -448,6 +472,14 @@ export async function runScheduled(
         budget.use(statements.length);
         await input.database.batch(statements);
       }
+    }
+    if (outcome !== "lost-lease" && input.webhook !== undefined) {
+      externalFetches += await deliverPendingOutbox({
+        database: input.database,
+        webhook: input.webhook,
+        wallNow: () => input.wallNow(),
+        useStatements: (count) => budget.use(count),
+      });
     }
   } finally {
     await releaseLease(input.database, input.token, budget);
