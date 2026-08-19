@@ -3,7 +3,7 @@ import {
   deliverPendingOutbox,
   type WebhookRuntime,
 } from "../db/outbox";
-import { ONE_HOUR_MS } from "./aggregate";
+import { ONE_DAY_MS, planRollingExpiry } from "./aggregate";
 import { createOutboxEntry } from "./outbox";
 import { planScheduledPersistence } from "./persistence";
 import { mapConcurrent } from "./pool";
@@ -40,11 +40,11 @@ export async function runScheduled(
   let externalFetches = 0;
   const acquired = await store.claimLease(input.token, input.wallNow());
   if (!acquired) {
-    return {
+    return logScheduledRun(input, {
       outcome: "lease-held",
       externalFetches,
       d1Statements: store.statementCount,
-    };
+    });
   }
 
   let outcome: ScheduledRunResult["outcome"] = "completed";
@@ -71,7 +71,13 @@ export async function runScheduled(
       if (!(await store.renewLease(input.token, renewalWallTime))) {
         outcome = "lost-lease";
       } else {
-        const expired = await store.loadExpiredCounts(state, input.scheduledTime);
+        const expired = await store.loadExpiredCounts(
+          planRollingExpiry(
+            state.monitors,
+            input.scheduledTime,
+            new Set(monitors.map((monitor) => monitor.id)),
+          ),
+        );
         const resultMap = new Map(
           enabled.map((monitor, index) => [
             monitor.id,
@@ -85,8 +91,8 @@ export async function runScheduled(
           scheduledTime: input.scheduledTime,
           expired,
         });
-        const dayMs = 24 * ONE_HOUR_MS;
-        const cleanupDay = Math.floor(input.scheduledTime / dayMs) * dayMs;
+        const cleanupDay =
+          Math.floor(input.scheduledTime / ONE_DAY_MS) * ONE_DAY_MS;
         const shouldCleanup = reduced.state.lastCleanupDay !== cleanupDay;
         const persistenceState = shouldCleanup
           ? { ...reduced.state, lastCleanupDay: cleanupDay }
@@ -121,9 +127,26 @@ export async function runScheduled(
     await store.releaseLease(input.token);
   }
 
-  return {
+  return logScheduledRun(input, {
     outcome,
     externalFetches,
     d1Statements: store.statementCount,
-  };
+  });
+}
+
+function logScheduledRun(
+  input: Pick<RunScheduledInput, "token" | "scheduledTime">,
+  result: ScheduledRunResult,
+): ScheduledRunResult {
+  console.log(
+    JSON.stringify({
+      event: "scheduled_run",
+      runId: input.token,
+      scheduledTime: input.scheduledTime,
+      outcome: result.outcome,
+      externalFetches: result.externalFetches,
+      d1Statements: result.d1Statements,
+    }),
+  );
+  return result;
 }

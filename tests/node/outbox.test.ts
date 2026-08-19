@@ -22,6 +22,29 @@ const changes: NotificationChange[] = [
 ];
 
 describe("notification outbox", () => {
+  it("calls the runtime fetch function without rebinding its receiver", async () => {
+    const runtimeFetch = vi.fn(function (this: unknown): Promise<Response> {
+      if (this !== undefined) throw new TypeError("Illegal invocation");
+      return Promise.resolve({ status: 204, body: null } as Response);
+    });
+    vi.stubGlobal("fetch", runtimeFetch);
+    vi.resetModules();
+
+    try {
+      const { sendWebhook: runtimeSend } = await import(
+        "../../src/worker/monitor/outbox"
+      );
+
+      await expect(
+        runtimeSend("https://webhook.example/", "{}"),
+      ).resolves.toBe("success");
+      expect(runtimeFetch).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
   it("builds one versioned private-safe payload for all run transitions", () => {
     const entry = createOutboxEntry("outbox-1", changes, 3_000, 10_000);
 

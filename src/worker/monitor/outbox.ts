@@ -46,7 +46,7 @@ export interface WebhookDependencies {
 }
 
 const defaultWebhookDependencies: WebhookDependencies = {
-  fetcher: fetch,
+  fetcher: (input, init) => fetch(input, init),
   timeoutMs: WEBHOOK_TIMEOUT_MS,
 };
 

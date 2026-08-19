@@ -1,3 +1,8 @@
+import {
+  FIVE_MINUTES_MS,
+  ONE_DAY_MS,
+  ONE_HOUR_MS,
+} from "./aggregate";
 import type {
   AppStateV1,
   BucketAggregate,
@@ -5,10 +10,6 @@ import type {
   RollingCount,
   RuntimeState,
 } from "./state";
-
-const FIVE_MINUTES_MS = 5 * 60_000;
-const ONE_HOUR_MS = 60 * 60_000;
-const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

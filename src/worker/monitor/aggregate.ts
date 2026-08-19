@@ -1,7 +1,13 @@
-import type { BucketAggregate, ProbeResult, RuntimeState } from "./state";
+import type {
+  AppStateV1,
+  BucketAggregate,
+  ProbeResult,
+  RuntimeState,
+} from "./state";
 
 export const FIVE_MINUTES_MS = 5 * 60_000;
 export const ONE_HOUR_MS = 60 * 60_000;
+export const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 function bucketStart(timestamp: number, size: number): number {
   return Math.floor(timestamp / size) * size;
@@ -70,11 +76,61 @@ export interface AggregationAdvance {
   completedHours: BucketAggregate[];
 }
 
+export interface ExpiryWindow {
+  monitorId: string;
+  afterExclusive: number;
+  throughInclusive: number;
+}
+
+export interface RollingExpiryPlan {
+  dayWindows: ExpiryWindow[];
+  weekWindows: ExpiryWindow[];
+  monthWindows: ExpiryWindow[];
+}
+
+export function planRollingExpiry(
+  monitors: AppStateV1["monitors"],
+  scheduledTime: number,
+  retainIds: ReadonlySet<string>,
+): RollingExpiryPlan {
+  const nextThrough =
+    bucketStart(scheduledTime, FIVE_MINUTES_MS) - FIVE_MINUTES_MS;
+  const advancing = Object.entries(monitors).flatMap(([monitorId, runtime]) => {
+    const countedThrough = runtime.rolling.throughBucketStart;
+    if (
+      !retainIds.has(monitorId) ||
+      countedThrough === null ||
+      countedThrough >= nextThrough
+    ) {
+      return [];
+    }
+    return [{ monitorId, countedThrough }];
+  });
+  const fiveMinuteWindow = (windowMs: number): ExpiryWindow[] =>
+    advancing.map(({ monitorId, countedThrough }) => ({
+      monitorId,
+      afterExclusive: countedThrough - windowMs,
+      throughInclusive: nextThrough - windowMs,
+    }));
+  return {
+    dayWindows: fiveMinuteWindow(ONE_DAY_MS),
+    weekWindows: fiveMinuteWindow(7 * ONE_DAY_MS),
+    monthWindows: advancing.map(({ monitorId, countedThrough }) => ({
+      monitorId,
+      afterExclusive:
+        Math.floor((countedThrough - 30 * ONE_DAY_MS) / ONE_HOUR_MS) *
+        ONE_HOUR_MS,
+      throughInclusive:
+        Math.floor((nextThrough - 30 * ONE_DAY_MS) / ONE_HOUR_MS) * ONE_HOUR_MS,
+    })),
+  };
+}
+
 export function advanceAggregates(
   state: RuntimeState,
   scheduledTime: number,
   result: ProbeResult | null,
-  flushAll = false,
+  finalizeRemaining = false,
 ): AggregationAdvance {
   const currentFiveMinute = bucketStart(scheduledTime, FIVE_MINUTES_MS);
   const currentHour = bucketStart(scheduledTime, ONE_HOUR_MS);
@@ -85,7 +141,7 @@ export function advanceAggregates(
 
   if (
     activeFiveMinute !== null &&
-    (flushAll || activeFiveMinute.bucketStart < currentFiveMinute)
+    (finalizeRemaining || activeFiveMinute.bucketStart < currentFiveMinute)
   ) {
     completedFiveMinutes.push(activeFiveMinute);
     const hour = bucketStart(activeFiveMinute.bucketStart, ONE_HOUR_MS);
@@ -100,7 +156,7 @@ export function advanceAggregates(
 
   if (
     activeHour !== null &&
-    (flushAll || activeHour.bucketStart < currentHour)
+    (finalizeRemaining || activeHour.bucketStart < currentHour)
   ) {
     completedHours.push(activeHour);
     activeHour = null;

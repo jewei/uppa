@@ -1,4 +1,7 @@
-import { FIVE_MINUTES_MS, ONE_HOUR_MS } from "../monitor/aggregate";
+import type {
+  ExpiryWindow,
+  RollingExpiryPlan,
+} from "../monitor/aggregate";
 import { decodeAppState } from "../monitor/app-state";
 import type { SqlStatementPlan } from "../monitor/persistence";
 import type {
@@ -15,12 +18,6 @@ interface ExpiredRow {
   monitor_id: unknown;
   checks: unknown;
   successes: unknown;
-}
-
-interface ExpiryInterval {
-  monitorId: string;
-  after: number;
-  through: number;
 }
 
 export class SchedulerStore {
@@ -97,19 +94,21 @@ export class SchedulerStore {
   async #loadExpiredRange(
     table: "history_5m" | "history_1h",
     timeColumn: "bucket_start" | "hour_start",
-    intervals: readonly ExpiryInterval[],
+    windows: readonly ExpiryWindow[],
   ): Promise<Map<string, { checks: number; successes: number }>> {
-    const active = intervals.filter((interval) => interval.after < interval.through);
+    const active = windows.filter(
+      (window) => window.afterExclusive < window.throughInclusive,
+    );
     const byMonitor = new Map<string, { checks: number; successes: number }>();
     for (let offset = 0; offset < active.length; offset += 30) {
       const chunk = active.slice(offset, offset + 30);
       const predicates = chunk
         .map(() => `(monitor_id = ? AND ${timeColumn} > ? AND ${timeColumn} <= ?)`)
         .join(" OR ");
-      const bindings = chunk.flatMap((interval) => [
-        interval.monitorId,
-        interval.after,
-        interval.through,
+      const bindings = chunk.flatMap((window) => [
+        window.monitorId,
+        window.afterExclusive,
+        window.throughInclusive,
       ]);
       this.useStatements();
       const result = await this.#database
@@ -139,60 +138,21 @@ export class SchedulerStore {
   }
 
   async loadExpiredCounts(
-    state: AppStateV1,
-    scheduledTime: number,
+    plan: RollingExpiryPlan,
   ): Promise<Map<string, ExpiredRollingCounts>> {
-    const currentBucket =
-      Math.floor(scheduledTime / FIVE_MINUTES_MS) * FIVE_MINUTES_MS;
-    const target = currentBucket - FIVE_MINUTES_MS;
-    const advancing = Object.entries(state.monitors).flatMap(
-      ([monitorId, runtime]) =>
-        runtime.rolling.throughBucketStart === null ||
-        runtime.rolling.throughBucketStart >= target
-          ? []
-          : [{ monitorId, through: runtime.rolling.throughBucketStart }],
-    );
-    const interval = (windowMs: number): ExpiryInterval[] =>
-      advancing.map(({ monitorId, through }) => ({
-        monitorId,
-        after: through - windowMs,
-        through: target - windowMs,
-      }));
-    const hourlyIntervals = advancing.map(({ monitorId, through }) => ({
-      monitorId,
-      after:
-        Math.floor((through - 30 * 24 * ONE_HOUR_MS) / ONE_HOUR_MS) *
-        ONE_HOUR_MS,
-      through:
-        Math.floor((target - 30 * 24 * ONE_HOUR_MS) / ONE_HOUR_MS) *
-        ONE_HOUR_MS,
-    }));
-
     const [day, week, month] = await Promise.all([
-      this.#loadExpiredRange(
-        "history_5m",
-        "bucket_start",
-        interval(24 * ONE_HOUR_MS),
-      ),
-      this.#loadExpiredRange(
-        "history_5m",
-        "bucket_start",
-        interval(7 * 24 * ONE_HOUR_MS),
-      ),
-      this.#loadExpiredRange(
-        "history_1h",
-        "hour_start",
-        hourlyIntervals,
-      ),
+      this.#loadExpiredRange("history_5m", "bucket_start", plan.dayWindows),
+      this.#loadExpiredRange("history_5m", "bucket_start", plan.weekWindows),
+      this.#loadExpiredRange("history_1h", "hour_start", plan.monthWindows),
     ]);
 
     return new Map(
-      advancing.map(({ monitorId }) => [
-        monitorId,
+      plan.dayWindows.map((window) => [
+        window.monitorId,
         {
-          "24h": day.get(monitorId) ?? { checks: 0, successes: 0 },
-          "7d": week.get(monitorId) ?? { checks: 0, successes: 0 },
-          "30d": month.get(monitorId) ?? { checks: 0, successes: 0 },
+          "24h": day.get(window.monitorId) ?? { checks: 0, successes: 0 },
+          "7d": week.get(window.monitorId) ?? { checks: 0, successes: 0 },
+          "30d": month.get(window.monitorId) ?? { checks: 0, successes: 0 },
         },
       ]),
     );

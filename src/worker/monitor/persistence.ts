@@ -1,3 +1,5 @@
+import { ONE_DAY_MS } from "./aggregate";
+import { encodeAppState } from "./app-state";
 import type { OutboxEntry } from "./outbox";
 import type {
   HistoryRow,
@@ -5,7 +7,6 @@ import type {
   IncidentOpen,
   ReducedScheduledRun,
 } from "./reduce";
-import { encodeAppState } from "./app-state";
 
 export type SqlBinding = string | number | null;
 
@@ -22,7 +23,6 @@ export interface ScheduledPersistenceInput {
 }
 
 const PERSISTENCE_CHUNK_SIZE = 10;
-const ONE_DAY_MS = 24 * 60 * 60_000;
 
 function incidentOpenPlans(incidents: readonly IncidentOpen[]): SqlStatementPlan[] {
   const plans: SqlStatementPlan[] = [];

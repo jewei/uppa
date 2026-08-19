@@ -553,6 +553,148 @@ describe("scheduled checks", () => {
     ).toEqual({ sent: 4, pending: 1 });
   });
 
+  it("finalizes 40 deleted leftovers under the scheduled D1 budget", async () => {
+    const insert = env.DB.prepare(
+      `INSERT INTO monitors
+        (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+       VALUES (?, ?, ?, 1, 0, 1, 1, NULL)`,
+    );
+    await env.DB.batch(
+      Array.from({ length: 40 }, (_, index) =>
+        insert.bind(`next-${index}`, `Next ${index}`, `https://next-${index}.example/`),
+      ),
+    );
+    const outboxInsert = env.DB.prepare(
+      `INSERT INTO notification_outbox
+        (id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at)
+       VALUES (?, ?, '{}', 0, 0, NULL, NULL)`,
+    );
+    await env.DB.batch(
+      Array.from({ length: 4 }, (_, index) =>
+        outboxInsert.bind(`pending-${index}`, index),
+      ),
+    );
+    const hour = 60 * 60_000;
+    const scheduledTime = 31 * 24 * hour;
+    const state = createAppState();
+    state.lastScheduledAt = scheduledTime - 60_000;
+    for (let index = 0; index < 40; index += 1) {
+      const runtime = createRuntimeState(scheduledTime - 10 * 60_000);
+      runtime.status = "down";
+      runtime.lastCheckedAt = scheduledTime - 60_000;
+      runtime.lastError = "Network request failed";
+      runtime.consecutiveFailures = 2;
+      runtime.tentativeFailureAt = scheduledTime - 120_000;
+      runtime.tentativeFailureError = "Network request failed";
+      runtime.openIncidentId = `gone-${index}:open`;
+      runtime.activeFiveMinute = {
+        bucketStart: scheduledTime - 5 * 60_000,
+        checks: 1,
+        successes: 1,
+        failures: 0,
+        latencySum: 10,
+        latencyMin: 10,
+        latencyMax: 10,
+      };
+      runtime.activeHour = {
+        bucketStart: scheduledTime - hour,
+        checks: 11,
+        successes: 11,
+        failures: 0,
+        latencySum: 110,
+        latencyMin: 10,
+        latencyMax: 10,
+      };
+      state.monitors[`gone-${index}`] = runtime;
+    }
+    const incidentInsert = env.DB.prepare(
+      `INSERT INTO incidents
+        (id, monitor_id, monitor_name, started_at, confirmed_at, ended_at,
+         ended_reason, first_error, last_error, first_status_code, last_status_code)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL,
+               'Network request failed', 'Network request failed', NULL, NULL)`,
+    );
+    await env.DB.batch([
+      env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1").bind(
+        encodeAppState(state),
+      ),
+      ...Array.from({ length: 40 }, (_, index) =>
+        incidentInsert.bind(
+          `gone-${index}:open`,
+          `gone-${index}`,
+          `Gone ${index}`,
+          scheduledTime - 120_000,
+          scheduledTime - 60_000,
+        ),
+      ),
+    ]);
+    const chunks: StatementChunks = {
+      historyRows: [],
+      incidentRows: [],
+      maximumBindings: 0,
+    };
+
+    const result = await runScheduled({
+      database: observeStatementChunks(chunks),
+      scheduledTime,
+      wallNow: () => scheduledTime + 1_000_000,
+      token: "replace-run",
+      check: async () => ({ ok: true, statusCode: 200, latencyMs: 10 }),
+      webhook: {
+        url: "https://notifications.invalid/endpoint",
+        send: async () => "success",
+        terminalFailure: vi.fn(),
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "completed", externalFetches: 44 });
+    expect(result.d1Statements).toBeLessThanOrEqual(40);
+    expect(chunks.historyRows).toEqual([10, 10, 10, 10, 10, 10, 10, 10]);
+    expect(chunks.maximumBindings).toBeLessThanOrEqual(100);
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM incidents WHERE ended_reason = 'deleted'",
+      ).first(),
+    ).toEqual({ count: 40 });
+    expect(Object.keys((await loadState()).monitors)).toHaveLength(40);
+    expect(
+      Object.keys((await loadState()).monitors).every((id) =>
+        id.startsWith("next-"),
+      ),
+    ).toBe(true);
+  });
+
+  it("logs the run id and outcome without private URLs", async () => {
+    await addMonitor();
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((message) => {
+      lines.push(String(message));
+    });
+
+    try {
+      await runScheduled({
+        database: env.DB,
+        scheduledTime: 300_000,
+        wallNow: () => 1_000_000,
+        token: "run-logged",
+        check: async () => ({ ok: true, statusCode: 200, latencyMs: 10 }),
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "null")).toEqual({
+      event: "scheduled_run",
+      runId: "run-logged",
+      scheduledTime: 300_000,
+      outcome: "completed",
+      externalFetches: 1,
+      d1Statements: expect.any(Number),
+    });
+    expect(lines[0]).not.toMatch(/https?:|example\/health|WEBHOOK/u);
+  });
+
   it("enforces one open incident per monitor in D1", async () => {
     const insert = env.DB.prepare(
       `INSERT INTO incidents

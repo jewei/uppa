@@ -1,5 +1,6 @@
 import type { HistoryRange } from "../shared/public-api";
-import { historyDto, statusDto } from "./public-api";
+import { historyDto } from "./public-history";
+import { statusDto } from "./public-status";
 import { sendWebhook } from "./monitor/outbox";
 import { probe } from "./monitor/probe";
 import { runScheduled } from "./monitor/scheduler";

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { advanceAggregates } from "../../src/worker/monitor/aggregate";
-import { createRuntimeState, type ProbeResult } from "../../src/worker/monitor/state";
+import {
+  advanceAggregates,
+  ONE_DAY_MS,
+  ONE_HOUR_MS,
+  planRollingExpiry,
+} from "../../src/worker/monitor/aggregate";
+import {
+  createRuntimeState,
+  type ProbeResult,
+} from "../../src/worker/monitor/state";
 
 const success = (latencyMs: number): ProbeResult => ({
   ok: true,
@@ -65,5 +73,42 @@ describe("history aggregation", () => {
         latencyMax: 10,
       },
     ]);
+  });
+
+  it("expires retained monitors only and skips already-caught-up windows", () => {
+    const kept = createRuntimeState(0);
+    const caughtUp = createRuntimeState(300_000);
+    const deleted = createRuntimeState(0);
+
+    expect(
+      planRollingExpiry(
+        { kept, caughtUp, deleted },
+        600_000,
+        new Set(["kept", "caughtUp"]),
+      ),
+    ).toEqual({
+      dayWindows: [
+        {
+          monitorId: "kept",
+          afterExclusive: -ONE_DAY_MS,
+          throughInclusive: 300_000 - ONE_DAY_MS,
+        },
+      ],
+      weekWindows: [
+        {
+          monitorId: "kept",
+          afterExclusive: -7 * ONE_DAY_MS,
+          throughInclusive: 300_000 - 7 * ONE_DAY_MS,
+        },
+      ],
+      monthWindows: [
+        {
+          monitorId: "kept",
+          afterExclusive: -30 * ONE_DAY_MS,
+          throughInclusive:
+            Math.floor((300_000 - 30 * ONE_DAY_MS) / ONE_HOUR_MS) * ONE_HOUR_MS,
+        },
+      ],
+    });
   });
 });

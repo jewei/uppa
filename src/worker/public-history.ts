@@ -1,37 +1,12 @@
-import type {
-  HistoryRange,
-  PublicHistoryDto,
-  PublicIncidentDto,
-  PublicStatusDto,
-} from "../shared/public-api";
+import type { HistoryRange, PublicHistoryDto } from "../shared/public-api";
+import { loadPackedState } from "./db/packed-state";
 import {
   FIVE_MINUTES_MS,
   mergeAggregates,
+  ONE_DAY_MS,
   ONE_HOUR_MS,
 } from "./monitor/aggregate";
-import { decodeAppState } from "./monitor/app-state";
-import type {
-  AppStateV1,
-  BucketAggregate,
-  RollingCount,
-  RuntimeState,
-} from "./monitor/state";
-import { loadEnabledPublicMonitors } from "./db/monitors";
-
-export type {
-  HistoryRange,
-  PublicHistoryDto,
-  PublicIncidentDto,
-  PublicStatusDto,
-} from "../shared/public-api";
-
-interface IncidentDatabaseRow {
-  monitor_name: unknown;
-  started_at: unknown;
-  confirmed_at: unknown;
-  ended_at: unknown;
-  ended_reason: unknown;
-}
+import type { BucketAggregate } from "./monitor/state";
 
 interface HistoryDatabaseRow {
   period_start: unknown;
@@ -45,104 +20,6 @@ interface HistoryDatabaseRow {
 
 type HistoryPointInternal = BucketAggregate;
 
-export async function loadPackedState(database: D1Database): Promise<AppStateV1> {
-  const row = await database
-    .prepare("SELECT version, payload FROM app_state WHERE id = 1")
-    .first<{ version: number; payload: string }>();
-  if (row === null) throw new Error("Missing app state");
-  return decodeAppState(row.version, row.payload);
-}
-
-function addActive(count: RollingCount, state: RuntimeState): RollingCount {
-  const active = state.activeFiveMinute;
-  return active === null
-    ? count
-    : {
-        checks: count.checks + active.checks,
-        successes: count.successes + active.successes,
-      };
-}
-
-function uptime(count: RollingCount): number | null {
-  return count.checks === 0 ? null : (count.successes / count.checks) * 100;
-}
-
-async function loadRecentIncidents(
-  database: D1Database,
-): Promise<PublicIncidentDto[]> {
-  const result = await database
-    .prepare(
-      `SELECT monitor_name, started_at, confirmed_at, ended_at, ended_reason
-       FROM incidents
-       ORDER BY started_at DESC, id DESC
-       LIMIT 20`,
-    )
-    .all<IncidentDatabaseRow>();
-
-  return result.results.map((row) => {
-    if (
-      typeof row.monitor_name !== "string" ||
-      typeof row.started_at !== "number" ||
-      typeof row.confirmed_at !== "number" ||
-      (row.ended_at !== null && typeof row.ended_at !== "number") ||
-      (row.ended_reason !== null &&
-        row.ended_reason !== "recovered" &&
-        row.ended_reason !== "disabled" &&
-        row.ended_reason !== "deleted")
-    ) {
-      throw new Error("Invalid incident row");
-    }
-    return {
-      monitorName: row.monitor_name,
-      startedAt: row.started_at,
-      confirmedAt: row.confirmed_at,
-      endedAt: row.ended_at,
-      endedReason: row.ended_reason,
-    };
-  });
-}
-
-export async function statusDto(
-  database: D1Database,
-  site: { name: string; description: string },
-  generatedAt: number,
-): Promise<PublicStatusDto> {
-  const [monitors, state, recentIncidents] = await Promise.all([
-    loadEnabledPublicMonitors(database),
-    loadPackedState(database),
-    loadRecentIncidents(database),
-  ]);
-  const publicMonitors = monitors.map((monitor) => {
-    const runtime = state.monitors[monitor.id];
-    return {
-      id: monitor.id,
-      name: monitor.name,
-      status: runtime?.status ?? ("pending" as const),
-      lastCheckedAt: runtime?.lastCheckedAt ?? null,
-      latencyMs: runtime?.lastLatencyMs ?? null,
-      uptime: {
-        "24h": runtime === undefined ? null : uptime(addActive(runtime.rolling["24h"], runtime)),
-        "7d": runtime === undefined ? null : uptime(addActive(runtime.rolling["7d"], runtime)),
-        "30d": runtime === undefined ? null : uptime(addActive(runtime.rolling["30d"], runtime)),
-      },
-    };
-  });
-  const overallStatus: PublicStatusDto["overallStatus"] = publicMonitors.some((monitor) => monitor.status === "down")
-    ? "degraded"
-    : publicMonitors.length > 0 &&
-        publicMonitors.every((monitor) => monitor.status === "up")
-      ? "operational"
-      : "unknown";
-
-  return {
-    generatedAt,
-    site,
-    overallStatus,
-    monitors: publicMonitors,
-    recentIncidents,
-  };
-}
-
 function historySettings(range: HistoryRange): {
   table: "history_5m" | "history_1h";
   timeColumn: "bucket_start" | "hour_start";
@@ -154,7 +31,7 @@ function historySettings(range: HistoryRange): {
     return {
       table: "history_5m",
       timeColumn: "bucket_start",
-      windowMs: 24 * ONE_HOUR_MS,
+      windowMs: ONE_DAY_MS,
       resolutionMs: FIVE_MINUTES_MS,
       limit: 288,
     };
@@ -163,7 +40,7 @@ function historySettings(range: HistoryRange): {
     return {
       table: "history_5m",
       timeColumn: "bucket_start",
-      windowMs: 7 * 24 * ONE_HOUR_MS,
+      windowMs: 7 * ONE_DAY_MS,
       resolutionMs: 30 * 60_000,
       limit: 336,
     };
@@ -171,7 +48,7 @@ function historySettings(range: HistoryRange): {
   return {
     table: "history_1h",
     timeColumn: "hour_start",
-    windowMs: 30 * 24 * ONE_HOUR_MS,
+    windowMs: 30 * ONE_DAY_MS,
     resolutionMs: ONE_HOUR_MS,
     limit: 720,
   };
@@ -268,7 +145,9 @@ export async function historyDto(
       ? [runtime?.activeHour, runtime?.activeFiveMinute]
       : [runtime?.activeFiveMinute];
   for (const active of activeBuckets) {
-    if (active === undefined || active === null || active.bucketStart < cutoff) continue;
+    if (active === undefined || active === null || active.bucketStart < cutoff) {
+      continue;
+    }
     const periodStart =
       Math.floor(active.bucketStart / settings.resolutionMs) * settings.resolutionMs;
     points.set(periodStart, combine(points.get(periodStart), active, periodStart));

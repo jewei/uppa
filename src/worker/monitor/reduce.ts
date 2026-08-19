@@ -191,7 +191,12 @@ export function reduceScheduledRun(
     if (configIds.has(monitorId)) continue;
     const closure = closeIncident(prior, input.scheduledTime, "deleted");
     if (closure !== null) incidentClosures.push(closure);
-    const advanced = advanceAggregates(cloneRuntime(prior), input.scheduledTime, null, true);
+    const advanced = advanceAggregates(
+      cloneRuntime(prior),
+      input.scheduledTime,
+      null,
+      true,
+    );
     fiveMinuteRows.push(...rows(monitorId, advanced.completedFiveMinutes));
     hourlyRows.push(...rows(monitorId, advanced.completedHours));
   }
