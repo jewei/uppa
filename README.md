@@ -1,6 +1,6 @@
 # Edge Uptime Monitor
 
-A self-hosted public status page and uptime monitor for Cloudflare Workers. It checks up to 40 HTTP/HTTPS endpoints once per minute, stores rolling history and incidents in D1, and can deliver generic webhook notifications.
+A self-hosted public status page and uptime monitor for Cloudflare Workers. It checks up to 40 HTTP/HTTPS monitors once per minute, stores rolling history and incidents in D1, and can deliver generic webhook notifications.
 
 The application has no browser administration or authentication. A trusted operator manages monitor configuration with the interactive Bun CLI.
 
@@ -19,7 +19,7 @@ bun install
 bun run check
 ```
 
-`bun run check` runs linting, all TypeScript checks, Worker and Node tests, and both production builds. Tests use local fakes or workerd and never contact monitored websites.
+`bun run check` runs linting, all TypeScript checks, Worker and Node tests, both production builds, a public-artifact privacy scan, a fresh isolated migration, and local Worker/SPA smoke requests. Tests use local fakes or workerd and never contact monitored websites.
 
 To prove migrations against an isolated fresh local D1 state:
 
@@ -48,7 +48,7 @@ Local D1 data is under ignored `.wrangler/` state. Do not commit it.
 
 ## Configure monitors
 
-Every command requires exactly one explicit D1 target. Add and edit prompt for the private endpoint URL so it does not appear in command-line arguments.
+Every command requires exactly one explicit D1 target. Add and edit prompt for the private monitor URL so it does not appear in command-line arguments.
 
 ```sh
 # Inspect configuration; URLs are redacted by default
@@ -64,7 +64,7 @@ bun run monitor -- add --local
 # Replace a monitor's name, URL, position, and enabled value
 bun run monitor -- edit MONITOR_ID --local
 
-# Change state or display order
+# Enable, disable, or change display order
 bun run monitor -- enable MONITOR_ID --local
 bun run monitor -- disable MONITOR_ID --local
 bun run monitor -- order MONITOR_ID --local
@@ -90,7 +90,7 @@ All checks are fixed and cannot be customized in v1:
 
 Two consecutive failures confirm `down`; one success confirms or restores `up`. A confirmed incident starts at the first of those two failures. Missed or overlapping scheduled events create no checks.
 
-The public page exposes monitor names, status, uptime, successful-check latency, and incidents. It never exposes target URLs or private probe diagnostics.
+The public page exposes monitor names, monitoring status, uptime, successful-check latency, and incidents. It never exposes monitor URLs or private probe diagnostics.
 
 ## Create Cloudflare resources
 
@@ -181,7 +181,7 @@ Cloudflare can change plan limits. Recheck the official [Workers limits](https:/
 ## Security and recovery notes
 
 - Public APIs and frontend artifacts use allow-listed DTOs and omit monitor URLs, webhook credentials, packed state, and probe errors.
-- Worker logs never include raw exceptions, response bodies, environment dumps, SQL containing URLs, or full endpoint URLs.
+- Worker logs never include raw exceptions, response bodies, environment dumps, SQL containing URLs, or full monitor URLs.
 - API responses and static assets set CSP, clickjacking, MIME-sniffing, and referrer protections; static assets also set a permissions policy.
 - Notification delivery retries are bounded. Attempt 20 becomes terminal and is visible only in structured Worker logs.
 - D1 is authoritative. Cache API entries are short-lived copies of successful public GET responses.
@@ -195,6 +195,7 @@ bun run typecheck
 bun run test
 bun run build
 bun run check
+bun run verify
 bun run db:migrate:local
 bun run dev
 bun run monitor -- list --local

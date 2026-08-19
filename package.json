@@ -9,7 +9,8 @@
     "typecheck": "tsc -p tsconfig.worker.json && tsc -p tsconfig.web.json && tsc -p tsconfig.node.json",
     "test": "vitest run && vitest run --config vitest.node.config.ts",
     "build": "vite build",
-    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
+    "verify": "bun run scripts/verify.ts",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run verify",
     "db:migrate:local": "wrangler d1 migrations apply edge-uptime --local",
     "monitor": "bun run scripts/monitor.ts"
   },

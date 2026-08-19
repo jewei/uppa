@@ -258,7 +258,7 @@ Provide interactive Bun commands to list, add, edit, enable, disable, and soft-d
 - Prompt for private URLs rather than accepting them as positional command arguments.
 - Redact URLs in list output unless `--show-urls` is explicit.
 - Validate using the same pure monitor validator as application code.
-- Execute parameter-safe SQL through Wrangler. If Wrangler requires a SQL file, create a mode-`0600` temporary file and remove it in `finally`.
+- Execute parameter-safe SQL through Wrangler. The `wrangler d1 execute` CLI has command/file inputs but no bind-parameter option, so encode text as SQLite hex blob literals cast to text and emit only validated safe-integer literals. If Wrangler requires a SQL file, create a mode-`0600` temporary file and remove it in `finally`.
 - Confirm destructive and remote operations interactively.
 - Enforce the 40-row cap atomically in SQL.
 - The CLI never changes app state, history, incidents, or outbox.
@@ -478,3 +478,4 @@ V1 is done only when all pass, migrations apply to fresh local D1, local Worker+
 - Vite plugin: https://developers.cloudflare.com/workers/vite-plugin/
 - Workers Vitest: https://developers.cloudflare.com/workers/testing/vitest-integration/
 - D1 pricing/limits/API: https://developers.cloudflare.com/d1/platform/pricing/ and https://developers.cloudflare.com/d1/platform/limits/ and https://developers.cloudflare.com/d1/worker-api/d1-database/
+- Wrangler D1 execute: https://developers.cloudflare.com/d1/wrangler-commands/#d1-execute

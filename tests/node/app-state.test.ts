@@ -27,6 +27,62 @@ describe("packed app state", () => {
         },
       }),
     ],
+    [
+      "non-allow-listed probe error",
+      1,
+      JSON.stringify({
+        ...createAppState(),
+        monitors: {
+          main: {
+            ...createRuntimeState(null),
+            lastCheckedAt: 1,
+            lastError: "connection refused at private.example",
+            consecutiveFailures: 1,
+            tentativeFailureAt: 1,
+            tentativeFailureError: "connection refused at private.example",
+          },
+        },
+      }),
+    ],
+    [
+      "down status without an incident",
+      1,
+      JSON.stringify({
+        ...createAppState(),
+        monitors: {
+          main: {
+            ...createRuntimeState(null),
+            status: "down",
+            lastCheckedAt: 2,
+            lastError: "Network request failed",
+            consecutiveFailures: 2,
+            tentativeFailureAt: 1,
+            tentativeFailureError: "Network request failed",
+          },
+        },
+      }),
+    ],
+    [
+      "inconsistent latency aggregate",
+      1,
+      JSON.stringify({
+        ...createAppState(),
+        monitors: {
+          main: {
+            ...createRuntimeState(null),
+            activeFiveMinute: {
+              bucketStart: 0,
+              checks: 1,
+              successes: 1,
+              failures: 0,
+              latencySum: 20,
+              latencyMin: 30,
+              latencyMax: 10,
+            },
+          },
+        },
+      }),
+    ],
   ])("rejects %s instead of silently resetting", (_label, version, payload) => {
     expect(() => decodeAppState(version, payload)).toThrow("Invalid app state");
   });

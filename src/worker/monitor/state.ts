@@ -1,4 +1,9 @@
-export type MonitoringStatus = "pending" | "up" | "down";
+import type { MonitoringStatus } from "../../shared/public-api";
+
+export type ProbeError =
+  | "Request timed out"
+  | "Network request failed"
+  | `Expected status 200-299, received ${number}`;
 
 export type ProbeResult =
   | { ok: true; statusCode: number; latencyMs: number }
@@ -7,7 +12,7 @@ export type ProbeResult =
       reason: "timeout" | "network" | "invalid_status";
       statusCode: number | null;
       latencyMs: number | null;
-      error: string;
+      error: ProbeError;
     };
 
 export interface Aggregate {
@@ -33,10 +38,10 @@ export interface RuntimeState {
   lastCheckedAt: number | null;
   lastLatencyMs: number | null;
   lastStatusCode: number | null;
-  lastError: string | null;
+  lastError: ProbeError | null;
   consecutiveFailures: number;
   tentativeFailureAt: number | null;
-  tentativeFailureError: string | null;
+  tentativeFailureError: ProbeError | null;
   tentativeFailureStatusCode: number | null;
   openIncidentId: string | null;
   activeFiveMinute: BucketAggregate | null;

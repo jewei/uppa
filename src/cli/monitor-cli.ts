@@ -23,10 +23,15 @@ function parseTarget(args: string[]): DatabaseTarget | null {
   return local ? "local" : "remote";
 }
 
-function sqlText(value: string): string {
+function sqlTextLiteral(value: string): string {
   const bytes = new TextEncoder().encode(value);
   const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   return `CAST(X'${hex}' AS TEXT)`;
+}
+
+function sqlIntegerLiteral(value: number): string {
+  if (!Number.isSafeInteger(value)) throw new Error("Invalid SQL integer");
+  return String(value);
 }
 
 function readMonitorRow(row: Record<string, unknown>): {
@@ -106,8 +111,8 @@ async function setEnabled(
   await dependencies.execute(
     target,
     `UPDATE monitors
-SET enabled = ${enabled ? 1 : 0}, updated_at = ${dependencies.now()}
-WHERE id = ${sqlText(id)} AND deleted_at IS NULL;`,
+SET enabled = ${enabled ? 1 : 0}, updated_at = ${sqlIntegerLiteral(dependencies.now())}
+WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
   dependencies.write(`Monitor ${enabled ? "enabled" : "disabled"}: ${id}`);
   return 0;
@@ -126,8 +131,8 @@ async function orderMonitor(
   await dependencies.execute(
     target,
     `UPDATE monitors
-SET position = ${position}, updated_at = ${dependencies.now()}
-WHERE id = ${sqlText(id)} AND deleted_at IS NULL;`,
+SET position = ${sqlIntegerLiteral(position)}, updated_at = ${sqlIntegerLiteral(dependencies.now())}
+WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
   dependencies.write(`Monitor position updated: ${id}`);
   return 0;
@@ -146,8 +151,10 @@ async function deleteMonitor(
   await dependencies.execute(
     target,
     `UPDATE monitors
-SET enabled = 0, deleted_at = ${now}, updated_at = ${now}
-WHERE id = ${sqlText(id)} AND deleted_at IS NULL;`,
+SET enabled = 0,
+    deleted_at = ${sqlIntegerLiteral(now)},
+    updated_at = ${sqlIntegerLiteral(now)}
+WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
   dependencies.write(`Monitor deleted: ${id}`);
   return 0;
@@ -184,12 +191,12 @@ async function editMonitor(
   await dependencies.execute(
     target,
     `UPDATE monitors
-SET name = ${sqlText(monitor.name)},
-    url = ${sqlText(monitor.url)},
+SET name = ${sqlTextLiteral(monitor.name)},
+    url = ${sqlTextLiteral(monitor.url)},
     enabled = ${monitor.enabled ? 1 : 0},
-    position = ${monitor.position},
-    updated_at = ${dependencies.now()}
-WHERE id = ${sqlText(id)} AND deleted_at IS NULL;`,
+    position = ${sqlIntegerLiteral(monitor.position)},
+    updated_at = ${sqlIntegerLiteral(dependencies.now())}
+WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
   dependencies.write(`Monitor updated: ${id}`);
   return 0;
@@ -219,13 +226,13 @@ async function addMonitor(
   const sql = `INSERT INTO monitors (
   id, name, url, enabled, position, created_at, updated_at, deleted_at
 ) VALUES (
-  ${sqlText(dependencies.randomId())},
-  ${sqlText(monitor.name)},
-  ${sqlText(monitor.url)},
+  ${sqlTextLiteral(dependencies.randomId())},
+  ${sqlTextLiteral(monitor.name)},
+  ${sqlTextLiteral(monitor.url)},
   1,
-  ${monitor.position},
-  ${now},
-  ${now},
+  ${sqlIntegerLiteral(monitor.position)},
+  ${sqlIntegerLiteral(now)},
+  ${sqlIntegerLiteral(now)},
   NULL
 );`;
   await dependencies.execute(target, sql);

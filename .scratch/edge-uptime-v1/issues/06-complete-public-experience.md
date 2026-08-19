@@ -6,7 +6,7 @@
 
 **Status:** complete
 
-- [x] Overall status, monitor state/uptime/latency, empty/loading/error states, and incidents are responsive and accessible.
+- [x] Overall status, monitoring status/uptime/latency, empty/loading/error states, and incidents are responsive and accessible.
 - [x] One selected monitor supports 24h/7d/30d SVG history without a UI/chart dependency.
 - [x] Status refreshes every minute; history fetches only on selection/range changes.
 - [x] Canonical successful API responses use required Cache API TTLs; errors/unknown parameters are not cached.

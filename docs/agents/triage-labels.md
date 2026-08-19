@@ -9,5 +9,6 @@ Local issues use these status values:
 | Fully specified | `ready-for-agent` |
 | Requires human work | `ready-for-human` |
 | Will not be actioned | `wontfix` |
+| Implemented and verified | `complete` |
 
 Use the status value verbatim in each local ticket's `Status:` line.

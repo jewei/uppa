@@ -4,7 +4,7 @@
 
 ## Problem Statement
 
-A single operator needs a small uptime monitor that can run economically on Cloudflare Workers, expose useful availability information publicly, and send dependable outage notifications without leaking private endpoint URLs or becoming a platform to maintain.
+A single operator needs a small uptime monitor that can run economically on Cloudflare Workers, expose useful availability information publicly, and send dependable outage notifications without leaking private monitor URLs or becoming a platform to maintain.
 
 ## Solution
 
@@ -13,7 +13,7 @@ Build one Worker deployment with a vanilla TypeScript status page, native public
 ## User Stories
 
 1. As a visitor, I want to see whether monitored services are operational, so that I know whether an outage is occurring.
-2. As a visitor, I want explicit monitor states and not color-only signals, so that the page is accessible.
+2. As a visitor, I want explicit monitoring status values and not color-only signals, so that the page is accessible.
 3. As a visitor, I want 24-hour, 7-day, and 30-day uptime, so that I can judge recent reliability.
 4. As a visitor, I want one selected monitor's latency/history chart, so that the page stays useful without loading every history series.
 5. As a visitor, I want recent incident times and closure reasons, so that I understand prior outages without seeing private diagnostics.
@@ -27,7 +27,7 @@ Build one Worker deployment with a vanilla TypeScript status page, native public
 13. As an operator, I want webhook retries to survive transient failure without blocking monitoring truth, so that alerts are dependable.
 14. As an operator, I want terminal webhook failure logged after bounded retries, so that broken delivery cannot create unbounded work.
 15. As an operator, I want missed or overlapping scheduler events skipped rather than invented, so that uptime uses observed checks only.
-16. As an operator, I want endpoint URLs and webhook credentials excluded from public output, logs, and frontend assets, so that monitoring does not disclose private configuration.
+16. As an operator, I want monitor URLs and webhook credentials excluded from public output, logs, and frontend assets, so that monitoring does not disclose private configuration.
 17. As an operator, I want the system to fit the Free plan at a conservative initial load and expose hard budgets in tests, so that scaling toward 40 is deliberate.
 18. As a maintainer, I want one traceable scheduled path and pure decision logic, so that I can understand and test the product end to end.
 
@@ -56,7 +56,7 @@ Primary test seams:
 
 ## Testing Decisions
 
-Tests assert observable results and budgets, not private helper structure. Pure domain modules run in ordinary Vitest; Worker, D1 transaction, migrations, Cache API, and routing run with the Workers integration. Network behavior uses fake fetch and no real endpoint. Each ticket keeps `bun run check` green and adds the narrow behavior tests needed for its slice.
+Tests assert observable results and budgets, not private helper structure. Pure domain modules run in ordinary Vitest; Worker, D1 transaction, migrations, Cache API, and routing run with the Workers integration. Network behavior uses fake fetch and no real website. Each ticket keeps `bun run check` green and adds the narrow behavior tests needed for its slice.
 
 ## Out of Scope
 

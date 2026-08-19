@@ -4,6 +4,7 @@ import {
   createRuntimeState,
   type AppStateV1,
   type BucketAggregate,
+  type ProbeError,
   type ProbeResult,
   type RollingCount,
   type RuntimeState,
@@ -32,8 +33,8 @@ export interface IncidentOpen {
   monitorName: string;
   startedAt: number;
   confirmedAt: number;
-  firstError: string;
-  lastError: string;
+  firstError: ProbeError;
+  lastError: ProbeError;
   firstStatusCode: number | null;
   lastStatusCode: number | null;
 }
@@ -44,7 +45,7 @@ export interface IncidentClosure {
   id: string;
   endedAt: number;
   endedReason: IncidentEndReason;
-  lastError: string | null;
+  lastError: ProbeError | null;
   lastStatusCode: number | null;
 }
 

@@ -1,3 +1,9 @@
+import type {
+  HistoryRange,
+  PublicHistoryDto,
+  PublicIncidentDto,
+  PublicStatusDto,
+} from "../shared/public-api";
 import {
   FIVE_MINUTES_MS,
   mergeAggregates,
@@ -7,49 +13,17 @@ import { decodeAppState } from "./monitor/app-state";
 import type {
   AppStateV1,
   BucketAggregate,
-  MonitoringStatus,
   RollingCount,
   RuntimeState,
 } from "./monitor/state";
 import { loadEnabledPublicMonitors } from "./db/monitors";
 
-export type HistoryRange = "24h" | "7d" | "30d";
-
-export interface PublicIncidentDto {
-  monitorName: string;
-  startedAt: number;
-  confirmedAt: number;
-  endedAt: number | null;
-  endedReason: "recovered" | "disabled" | "deleted" | null;
-}
-
-export interface PublicStatusDto {
-  generatedAt: number;
-  site: { name: string; description: string };
-  overallStatus: "operational" | "degraded" | "unknown";
-  monitors: Array<{
-    id: string;
-    name: string;
-    status: MonitoringStatus;
-    lastCheckedAt: number | null;
-    latencyMs: number | null;
-    uptime: Record<HistoryRange, number | null>;
-  }>;
-  recentIncidents: PublicIncidentDto[];
-}
-
-export interface PublicHistoryDto {
-  generatedAt: number;
-  monitor: { id: string; name: string };
-  range: HistoryRange;
-  points: Array<{
-    time: number;
-    checks: number;
-    successes: number;
-    failures: number;
-    latency: { min: number | null; max: number | null; average: number | null };
-  }>;
-}
+export type {
+  HistoryRange,
+  PublicHistoryDto,
+  PublicIncidentDto,
+  PublicStatusDto,
+} from "../shared/public-api";
 
 interface IncidentDatabaseRow {
   monitor_name: unknown;

@@ -37,13 +37,17 @@ describe("monitor validation", () => {
     ["fragment", "https://example.com/#private"],
     ["unsupported protocol", "ftp://example.com/"],
     ["localhost", "http://localhost/"],
+    ["localhost with a trailing dot", "http://localhost./"],
     ["loopback IPv4", "http://127.0.0.1/"],
     ["private IPv4", "http://192.168.1.10/"],
     ["link-local IPv4", "http://169.254.1.1/"],
+    ["reserved IPv4", "http://192.88.99.1/"],
     ["loopback IPv6", "http://[::1]/"],
     ["private IPv6", "http://[fd00::1]/"],
     ["multicast IPv6", "http://[ff02::1]/"],
     ["mapped IPv6", "http://[::ffff:127.0.0.1]/"],
+    ["discard-only IPv6", "http://[100::1]/"],
+    ["documentation IPv6", "http://[3fff::1]/"],
   ])("rejects %s targets", (_label, url) => {
     const result = validateMonitorInput({
       name: "Private target",

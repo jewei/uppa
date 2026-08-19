@@ -142,7 +142,7 @@ function renderMonitors(monitors: PublicMonitor[]): void {
     replaceWithMessage(
       content,
       "No monitors configured",
-      "The operator can add an endpoint with the Bun CLI.",
+      "The operator can add a monitor with the Bun CLI.",
     );
     replaceWithMessage(
       element("history-content"),

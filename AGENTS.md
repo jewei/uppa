@@ -45,7 +45,7 @@ Commit `bun.lock`; never use npm, pnpm, Yarn, or Bun-only server APIs in Worker 
 ## Database and scheduler
 
 - Schema changes are new files in `migrations/`; never edit a shipped migration.
-- Use parameterized prepared SQL, explicit columns, Unix-millisecond timestamps, and validated versioned packed state.
+- Worker D1 code uses parameterized prepared SQL, explicit columns, Unix-millisecond timestamps, and validated versioned packed state. Wrangler-only CLI SQL uses validated integer literals and hex-encoded text literals because `wrangler d1 execute` has no parameter-binding option.
 - Preserve composite `WITHOUT ROWID` history tables and justified partial indexes unless current D1 behavior requires a documented change.
 - Enforce the monitor cap and one-open-incident invariant in SQL.
 - Use scheduled event time for check identity/buckets and wall time for leases/network delivery.

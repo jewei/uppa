@@ -156,17 +156,22 @@ describe("public status", () => {
 
   it("publishes monitoring truth and observed-check uptime without private state", async () => {
     const now = Date.now();
+    const currentBucket = Math.floor(now / 300_000) * 300_000;
     await env.DB.prepare(
       `INSERT INTO monitors
         (id, name, url, enabled, position, created_at, updated_at, deleted_at)
        VALUES ('main', 'Main', 'https://private.example/health', 1, 0, 1, 1, NULL)`,
     ).run();
     const state = createAppState();
-    const runtime = createRuntimeState(now - 300_000);
+    const runtime = createRuntimeState(currentBucket - 300_000);
     runtime.status = "down";
     runtime.lastCheckedAt = now;
     runtime.lastLatencyMs = 25;
     runtime.lastError = "Network request failed";
+    runtime.consecutiveFailures = 2;
+    runtime.tentativeFailureAt = now - 60_000;
+    runtime.tentativeFailureError = "Network request failed";
+    runtime.openIncidentId = "main:incident";
     runtime.rolling["24h"] = { checks: 2, successes: 2 };
     runtime.rolling["7d"] = { checks: 3, successes: 2 };
     runtime.activeFiveMinute = {
@@ -374,7 +379,7 @@ describe("public status", () => {
     ).resolves.toMatchObject({ success: true });
   });
 
-  it("rejects invalid relational monitor state", async () => {
+  it("rejects invalid relational monitor configuration", async () => {
     await expect(
       env.DB.prepare(
         `INSERT INTO monitors

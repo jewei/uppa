@@ -1,0 +1,40 @@
+import { describe, expect, it } from "vitest";
+import { planScheduledPersistence } from "../../src/worker/monitor/persistence";
+import { createAppState } from "../../src/worker/monitor/state";
+
+describe("scheduled persistence planning", () => {
+  it("plans bounded history chunks without a D1 dependency", () => {
+    const fiveMinuteRows = Array.from({ length: 11 }, (_, index) => ({
+      monitorId: `monitor-${index}`,
+      bucketStart: index * 300_000,
+      checks: 1,
+      successes: 1,
+      failures: 0,
+      latencySum: 10,
+      latencyMin: 10,
+      latencyMax: 10,
+    }));
+
+    const plans = planScheduledPersistence({
+      reduced: {
+        state: createAppState(),
+        fiveMinuteRows,
+        hourlyRows: [],
+        incidentOpens: [],
+        incidentClosures: [],
+        notificationChanges: [],
+      },
+      scheduledTime: 3_000_000,
+      cleanupDay: null,
+      outboxEntry: null,
+    });
+
+    const historyPlans = plans.filter((plan) =>
+      plan.sql.includes("INSERT INTO history_5m"),
+    );
+    expect(historyPlans.map((plan) => plan.bindings.length)).toEqual([80, 8]);
+    expect(Math.max(...plans.map((plan) => plan.bindings.length))).toBeLessThanOrEqual(
+      100,
+    );
+  });
+});

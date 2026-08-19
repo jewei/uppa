@@ -109,6 +109,32 @@ describe("scheduled checks", () => {
     expect(check).not.toHaveBeenCalled();
   });
 
+  it("rejects monitor rows that bypass shared configuration validation", async () => {
+    await env.DB.prepare(
+      `INSERT INTO monitors
+        (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+       VALUES ('invalid', 'Invalid', 'http://localhost./', 1, 0, 1, 1, NULL)`,
+    ).run();
+    const check = vi.fn();
+
+    await expect(
+      runScheduled({
+        database: env.DB,
+        scheduledTime: 300_000,
+        wallNow: () => 1_000_000,
+        token: "invalid-config",
+        check,
+      }),
+    ).rejects.toThrow("Invalid monitor row");
+
+    expect(check).not.toHaveBeenCalled();
+    expect(
+      await env.DB.prepare(
+        "SELECT token, lease_until FROM scheduler_lock WHERE id = 1",
+      ).first(),
+    ).toEqual({ token: null, lease_until: 0 });
+  });
+
   it("does not persist after losing lease ownership during probes", async () => {
     await addMonitor();
 
@@ -178,6 +204,8 @@ describe("scheduled checks", () => {
     state.monitors.main = {
       ...createRuntimeState(0),
       status: "up",
+      lastCheckedAt: 1_000,
+      lastError: "Network request failed",
       consecutiveFailures: 1,
       tentativeFailureAt: 1_000,
       tentativeFailureError: "Network request failed",
@@ -281,6 +309,8 @@ describe("scheduled checks", () => {
     state.monitors.down = {
       ...createRuntimeState(0),
       status: "up",
+      lastCheckedAt: 1_000,
+      lastError: "Network request failed",
       consecutiveFailures: 1,
       tentativeFailureAt: 1_000,
       tentativeFailureError: "Network request failed",
@@ -288,6 +318,7 @@ describe("scheduled checks", () => {
     state.monitors.recover = {
       ...createRuntimeState(0),
       status: "down",
+      lastCheckedAt: 1_000,
       consecutiveFailures: 2,
       tentativeFailureAt: 500,
       tentativeFailureError: "Network request failed",
@@ -435,6 +466,8 @@ describe("scheduled checks", () => {
     for (let index = 0; index < 40; index += 1) {
       const runtime = createRuntimeState(scheduledTime - 10 * 60_000);
       runtime.status = "up";
+      runtime.lastCheckedAt = scheduledTime - 60_000;
+      runtime.lastError = "Network request failed";
       runtime.consecutiveFailures = 1;
       runtime.tentativeFailureAt = scheduledTime - 60_000;
       runtime.tentativeFailureError = "Network request failed";
@@ -554,6 +587,8 @@ describe("scheduled checks", () => {
     state.lastScheduledAt = 0;
     state.monitors.main = {
       ...createRuntimeState(0),
+      lastCheckedAt: 0,
+      lastError: "Network request failed",
       consecutiveFailures: 1,
       tentativeFailureAt: 0,
       tentativeFailureError: "Network request failed",
@@ -616,15 +651,24 @@ describe("scheduled checks", () => {
     state.monitors.disabled = {
       ...createRuntimeState(0),
       status: "down",
-      openIncidentId: "disabled-open",
+      lastCheckedAt: 20,
       lastError: "Network request failed",
+      consecutiveFailures: 2,
+      tentativeFailureAt: 10,
+      tentativeFailureError: "Network request failed",
+      openIncidentId: "disabled-open",
     };
     state.monitors.deleted = {
       ...createRuntimeState(0),
       status: "down",
-      openIncidentId: "deleted-open",
+      lastCheckedAt: 20,
       lastError: "Expected status 200-299, received 503",
       lastStatusCode: 503,
+      consecutiveFailures: 2,
+      tentativeFailureAt: 10,
+      tentativeFailureError: "Network request failed",
+      tentativeFailureStatusCode: null,
+      openIncidentId: "deleted-open",
     };
     await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
       .bind(encodeAppState(state))
@@ -799,7 +843,7 @@ describe("scheduled checks", () => {
       reason: "network" as const,
       statusCode: null,
       latencyMs: null,
-      error: "Network request failed",
+      error: "Network request failed" as const,
     };
 
     for (const scheduledTime of [0, 60_000]) {

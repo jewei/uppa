@@ -1,53 +1,21 @@
+import type {
+  HistoryRange,
+  OverallStatus,
+  PublicHistoryDto,
+  PublicHistoryPointDto,
+  PublicIncidentDto,
+  PublicMonitorDto,
+  PublicStatusDto,
+} from "../shared/public-api";
+
+export type { HistoryRange, OverallStatus } from "../shared/public-api";
+export type PublicMonitor = PublicMonitorDto;
+export type PublicIncident = PublicIncidentDto;
+export type StatusResponse = PublicStatusDto;
+export type HistoryPoint = PublicHistoryPointDto;
+export type HistoryResponse = PublicHistoryDto;
+
 export const STATUS_REFRESH_MS = 60_000;
-
-export type MonitorStatus = "pending" | "up" | "down";
-export type OverallStatus = "operational" | "degraded" | "unknown";
-export type HistoryRange = "24h" | "7d" | "30d";
-export type IncidentEndReason = "recovered" | "disabled" | "deleted";
-
-export interface PublicMonitor {
-  id: string;
-  name: string;
-  status: MonitorStatus;
-  lastCheckedAt: number | null;
-  latencyMs: number | null;
-  uptime: Record<HistoryRange, number | null>;
-}
-
-export interface PublicIncident {
-  monitorName: string;
-  startedAt: number;
-  confirmedAt: number;
-  endedAt: number | null;
-  endedReason: IncidentEndReason | null;
-}
-
-export interface StatusResponse {
-  generatedAt: number;
-  site: { name: string; description: string };
-  overallStatus: OverallStatus;
-  monitors: PublicMonitor[];
-  recentIncidents: PublicIncident[];
-}
-
-export interface HistoryPoint {
-  time: number;
-  checks: number;
-  successes: number;
-  failures: number;
-  latency: {
-    min: number | null;
-    max: number | null;
-    average: number | null;
-  };
-}
-
-export interface HistoryResponse {
-  generatedAt: number;
-  monitor: { id: string; name: string };
-  range: HistoryRange;
-  points: HistoryPoint[];
-}
 
 export interface ChartGeometry {
   path: string;

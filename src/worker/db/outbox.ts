@@ -2,7 +2,6 @@ import {
   planDeliveryUpdate,
   type DeliveryOutcome,
   type DeliveryUpdate,
-  type OutboxEntry,
 } from "../monitor/outbox";
 
 export interface WebhookRuntime {
@@ -73,19 +72,6 @@ function deliveryStatement(
        WHERE id = ? AND sent_at IS NULL AND failed_at IS NULL`,
     )
     .bind(update.attempts, update.nextAttemptAt, update.id);
-}
-
-export function prepareOutboxInsert(
-  database: D1Database,
-  entry: OutboxEntry,
-): D1PreparedStatement {
-  return database
-    .prepare(
-      `INSERT INTO notification_outbox
-        (id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at)
-       VALUES (?, ?, ?, 0, ?, NULL, NULL)`,
-    )
-    .bind(entry.id, entry.createdAt, entry.payload, entry.nextAttemptAt);
 }
 
 export async function deliverPendingOutbox(input: {
