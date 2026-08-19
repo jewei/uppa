@@ -3,7 +3,7 @@
 Use these terms consistently in product documentation, code, and tests.
 
 - **Public status page** — The visitor-facing view of enabled monitors, uptime, and incidents. It identifies monitors by public name but never reveals their target addresses.
-- **Administrator** — The single trusted operator who configures monitors and runs manual diagnostics.
+- **Operator** — The single trusted person who configures monitors through local tooling.
 - **Monitor** — A saved name and HTTP/HTTPS endpoint. A monitor can be enabled, disabled, or deleted.
 - **Scheduled check** — A GET request initiated by the minute schedule. Only scheduled checks contribute to monitoring state and history.
 - **Check result** — The success or failure observed for one monitor at one scheduled time.

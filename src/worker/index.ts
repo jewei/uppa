@@ -1,3 +1,5 @@
+import { loadEnabledPublicMonitors } from "./db/monitors";
+
 export interface Env {
   DB: D1Database;
   SITE_NAME: string;
@@ -19,7 +21,16 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-function handleStatus(env: Env): Response {
+async function handleStatus(env: Env): Promise<Response> {
+  const monitors = (await loadEnabledPublicMonitors(env.DB)).map((monitor) => ({
+    id: monitor.id,
+    name: monitor.name,
+    status: "pending" as const,
+    lastCheckedAt: null,
+    latencyMs: null,
+    uptime: { "24h": null, "7d": null, "30d": null },
+  }));
+
   return json({
     generatedAt: Date.now(),
     site: {
@@ -27,12 +38,12 @@ function handleStatus(env: Env): Response {
       description: env.SITE_DESCRIPTION,
     },
     overallStatus: "unknown",
-    monitors: [],
+    monitors,
     recentIncidents: [],
   });
 }
 
-function handleRequest(request: Request, env: Env): Response {
+async function handleRequest(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
   if (request.method === "GET" && url.pathname === "/api/status") {

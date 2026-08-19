@@ -55,7 +55,26 @@ h2 { margin-bottom: 0; font-size: 1.125rem; }
 .empty-title { margin-bottom: 0.4rem; font-weight: 700; }
 .error { border-color: #e1b8b3; color: #812d25; }
 
+.monitor-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.25rem 0;
+  border-bottom: 1px solid #d9ddd4;
+}
+.monitor-card:first-child { border-top: 1px solid #d9ddd4; }
+.monitor-card h3 { margin: 0 0 0.35rem; font-size: 1rem; }
+.monitor-state { margin: 0; color: #667068; font-size: 0.8rem; text-transform: capitalize; }
+.monitor-state::before { content: ""; display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.4rem; border-radius: 50%; background: #c08a26; }
+.uptime-grid { display: grid; grid-template-columns: repeat(3, 4.5rem); gap: 1rem; margin: 0; text-align: right; }
+.uptime-grid div { display: grid; gap: 0.2rem; }
+.uptime-grid dt { color: #667068; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; }
+.uptime-grid dd { margin: 0; font-variant-numeric: tabular-nums; }
+
 @media (max-width: 36rem) {
   .shell { padding-top: 2rem; }
   .section-heading { align-items: flex-start; flex-direction: column; }
+  .monitor-card { align-items: flex-start; flex-direction: column; }
+  .uptime-grid { width: 100%; grid-template-columns: repeat(3, 1fr); text-align: left; }
 }

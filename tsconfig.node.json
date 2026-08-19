@@ -12,5 +12,13 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "vitest.node.config.ts",
+    "scripts",
+    "src/cli",
+    "src/shared",
+    "tests/node"
+  ]
 }
