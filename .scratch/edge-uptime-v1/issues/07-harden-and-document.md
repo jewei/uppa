@@ -4,10 +4,10 @@
 
 **Blocked by:** 05 — Deliver transition webhooks; 06 — Complete the cached public status experience.
 
-**Status:** ready-for-agent
+**Status:** complete
 
-- [ ] Combined worst-case tests prove <=44 external fetches, <=40 D1 statements, bounded chunks, and concurrency five.
-- [ ] Fresh local migration and Worker/SPA smoke tests pass from a clean state.
-- [ ] Logs/artifacts/repository are audited for URLs, secrets, raw exceptions, generated junk, and non-Bun lockfiles.
-- [ ] README documents Bun, CLI local/remote operation, D1 creation/binding/migrations, variables/optional secret, checks, Free-plan telemetry guidance, and user-run deployment.
-- [ ] Every root specification completion criterion is checked and `bun run check` passes.
+- [x] Combined worst-case tests prove <=44 external fetches, <=40 D1 statements, bounded chunks, and concurrency five.
+- [x] Fresh local migration and Worker/SPA smoke tests pass from a clean state.
+- [x] Logs/artifacts/repository are audited for URLs, secrets, raw exceptions, generated junk, and non-Bun lockfiles.
+- [x] README documents Bun, CLI local/remote operation, D1 creation/binding/migrations, variables/optional secret, checks, Free-plan telemetry guidance, and user-run deployment.
+- [x] Every root specification completion criterion is checked and `bun run check` passes.

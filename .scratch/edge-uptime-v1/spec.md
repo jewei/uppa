@@ -1,6 +1,6 @@
 # Edge Uptime Monitor v1
 
-**Status:** ready-for-agent
+**Status:** complete
 
 ## Problem Statement
 

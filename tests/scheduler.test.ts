@@ -47,6 +47,44 @@ async function loadState() {
   return decodeAppState(row.version, row.payload);
 }
 
+interface StatementChunks {
+  historyRows: number[];
+  incidentRows: number[];
+  maximumBindings: number;
+}
+
+function observeStatementChunks(observed: StatementChunks): D1Database {
+  return {
+    prepare(query: string) {
+      const statement = env.DB.prepare(query);
+      return new Proxy(statement, {
+        get(target, property) {
+          if (property === "bind") {
+            return (...values: unknown[]) => {
+              observed.maximumBindings = Math.max(
+                observed.maximumBindings,
+                values.length,
+              );
+              if (query.includes("INSERT INTO history_")) {
+                observed.historyRows.push(values.length / 8);
+              }
+              if (query.includes("INSERT INTO incidents")) {
+                observed.incidentRows.push(values.length / 9);
+              }
+              return target.bind(...values);
+            };
+          }
+          const value = Reflect.get(target, property, target) as unknown;
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+    },
+    batch(statements: D1PreparedStatement[]) {
+      return env.DB.batch(statements);
+    },
+  } as D1Database;
+}
+
 describe("scheduled checks", () => {
   it("skips probing while another scheduler lease is held", async () => {
     await addMonitor();
@@ -426,9 +464,14 @@ describe("scheduled checks", () => {
       .run();
     let active = 0;
     let maximum = 0;
+    const chunks: StatementChunks = {
+      historyRows: [],
+      incidentRows: [],
+      maximumBindings: 0,
+    };
 
     const result = await runScheduled({
-      database: env.DB,
+      database: observeStatementChunks(chunks),
       scheduledTime,
       wallNow: () => scheduledTime + 1_000_000,
       token: "full-run",
@@ -455,6 +498,9 @@ describe("scheduled checks", () => {
     expect(result).toMatchObject({ outcome: "completed", externalFetches: 44 });
     expect(result.d1Statements).toBeLessThanOrEqual(40);
     expect(maximum).toBe(5);
+    expect(chunks.historyRows).toEqual([10, 10, 10, 10, 10, 10, 10, 10]);
+    expect(chunks.incidentRows).toEqual([10, 10, 10, 10]);
+    expect(chunks.maximumBindings).toBeLessThanOrEqual(100);
     expect(
       await env.DB.prepare("SELECT COUNT(*) AS count FROM history_5m").first(),
     ).toEqual({ count: 40 });
