@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light" />
     <meta name="description" content="Current service availability" />
     <title>System Status</title>
@@ -11,29 +11,79 @@
   <body>
     <main class="shell">
       <header class="masthead">
-        <p class="eyebrow">Service health</p>
-        <h1 id="site-name">System Status</h1>
-        <p id="site-description" class="description">Current service availability</p>
+        <div class="identity">
+          <p class="wordmark" id="site-name">System Status</p>
+          <p class="description" id="site-description">Current service availability</p>
+        </div>
+        <p class="updated-at" id="generated-at" aria-live="polite">Connecting…</p>
       </header>
 
-      <section class="summary" aria-labelledby="summary-title">
-        <div>
-          <p class="label">Current status</p>
-          <h2 id="summary-title">Checking status…</h2>
+      <section class="summary" id="summary" aria-labelledby="summary-title" aria-live="polite">
+        <div class="summary-copy">
+          <span class="status-mark" id="status-mark" aria-hidden="true"></span>
+          <div>
+            <h1 id="summary-title">Checking current status</h1>
+            <p id="summary-detail">Waiting for the latest scheduled checks.</p>
+          </div>
         </div>
-        <span id="status-mark" class="status-mark" aria-hidden="true"></span>
+        <p class="summary-state" id="summary-state">Unknown</p>
       </section>
 
-      <section aria-labelledby="monitors-title">
+      <section class="workspace" aria-label="Service status workspace">
+        <section class="monitor-section" aria-labelledby="monitors-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="monitors-title">Monitors</h2>
+              <p>Select a monitor to inspect its recorded latency.</p>
+            </div>
+            <p class="section-count" id="monitor-count">—</p>
+          </div>
+          <div id="monitor-content" class="monitor-list" aria-live="polite" aria-busy="true">
+            <div class="skeleton-row" aria-hidden="true"></div>
+            <div class="skeleton-row" aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <section class="history-section" id="history-section" aria-labelledby="history-title">
+          <div class="section-heading history-heading">
+            <div>
+              <h2 id="history-title">Latency history</h2>
+              <p id="history-monitor">Choose a monitor to load history.</p>
+            </div>
+            <div class="range-controls" id="range-controls" role="group" aria-label="History range">
+              <button type="button" data-range="24h" aria-pressed="true" disabled>24h</button>
+              <button type="button" data-range="7d" aria-pressed="false" disabled>7d</button>
+              <button type="button" data-range="30d" aria-pressed="false" disabled>30d</button>
+            </div>
+          </div>
+          <div id="history-content" class="history-content" aria-live="polite" aria-busy="false">
+            <div class="empty-state">
+              <p class="empty-title">No monitor selected</p>
+              <p>Select a monitor above to view observed checks.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="incident-section" aria-labelledby="incidents-title">
         <div class="section-heading">
-          <h2 id="monitors-title">Monitors</h2>
-          <p id="generated-at" class="muted" aria-live="polite"></p>
+          <div>
+            <h2 id="incidents-title">Recent incidents</h2>
+            <p>Confirmed outages and how they ended.</p>
+          </div>
+          <p class="section-count" id="incident-count">—</p>
         </div>
-        <div id="monitor-content" aria-live="polite">
-          <p class="panel muted">Loading monitors…</p>
+        <div id="incident-content" class="incident-list" aria-live="polite" aria-busy="true">
+          <div class="skeleton-row" aria-hidden="true"></div>
         </div>
       </section>
     </main>
+
+    <footer class="footer">
+      <p>Observed checks only</p>
+      <p>Missed schedules and disabled periods are excluded from uptime.</p>
+    </footer>
+
     <script type="module" src="/src/web/main.ts"></script>
   </body>
 </html>

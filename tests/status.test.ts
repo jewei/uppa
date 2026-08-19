@@ -28,6 +28,12 @@ describe("public status", () => {
     const response = await SELF.fetch("https://status.example/api/status");
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toContain(
+      "frame-ancestors 'none'",
+    );
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await response.json()).toEqual({
       generatedAt: expect.any(Number),
       site: {
@@ -329,6 +335,12 @@ describe("public status", () => {
     );
 
     expect(invalid.status).toBe(400);
+    expect(invalid.headers.get("cache-control")).toBeNull();
+    expect(
+      await caches.default.match(
+        "https://status.example/api/monitors/hidden/history?range=24h&extra=1",
+      ),
+    ).toBeUndefined();
     expect(await invalid.json()).toEqual({
       error: { code: "invalid_range", message: "range must be one of: 24h, 7d, 30d" },
     });
