@@ -25,6 +25,17 @@ async function spawnCommand(command: string[]): Promise<SpawnResult> {
   return { exitCode: 0, stdout };
 }
 
+function parseJsonOutput(stdout: string): unknown {
+  const trimmed = stdout.trim();
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    const jsonStart = trimmed.lastIndexOf("\n[");
+    if (jsonStart === -1) throw new Error("Invalid Wrangler response");
+    return JSON.parse(trimmed.slice(jsonStart + 1)) as unknown;
+  }
+}
+
 function parseResults(value: unknown): SqlResult {
   if (!Array.isArray(value)) throw new Error("Invalid Wrangler response");
 
@@ -62,7 +73,15 @@ export async function executeWranglerSql(
   const sqlPath = join(directory, "command.sql");
 
   try {
-    await writeFile(sqlPath, sql, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    const remoteRead = target === "remote" && /^\s*SELECT\b/iu.test(sql);
+    if (!remoteRead) {
+      await writeFile(sqlPath, sql, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+    }
+    const input = remoteRead ? ["--command", sql] : ["--file", sqlPath];
     const result = await dependencies.spawn([
       process.execPath,
       "x",
@@ -71,13 +90,12 @@ export async function executeWranglerSql(
       "execute",
       "edge-uptime",
       target === "local" ? "--local" : "--remote",
-      "--file",
-      sqlPath,
+      ...input,
       "--yes",
       "--json",
     ]);
     if (result.exitCode !== 0) throw new Error("Wrangler exited unsuccessfully");
-    return parseResults(JSON.parse(result.stdout) as unknown);
+    return parseResults(parseJsonOutput(result.stdout));
   } catch {
     throw new Error("Wrangler D1 command failed");
   } finally {
