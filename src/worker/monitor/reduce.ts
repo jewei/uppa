@@ -1,4 +1,10 @@
-import { advanceAggregates, FIVE_MINUTES_MS } from "./aggregate";
+import {
+  advanceAggregates,
+  FIVE_MINUTES_MS,
+  ONE_HOUR_MS,
+  rollingWindowBoundaries,
+  type RollingWindowBoundaries,
+} from "./aggregate";
 import {
   applyCheckResult,
   createRuntimeState,
@@ -71,6 +77,7 @@ export interface ReducedScheduledRun {
   incidentOpens: IncidentOpen[];
   incidentClosures: IncidentClosure[];
   notificationChanges: NotificationChange[];
+  purgeMonitorIds: string[];
 }
 
 function cloneRuntime(state: RuntimeState): RuntimeState {
@@ -109,15 +116,25 @@ function add(count: RollingCount, bucket: BucketAggregate): RollingCount {
 function applyExpired(
   state: RuntimeState,
   expired: ExpiredRollingCounts | undefined,
+  boundaries: RollingWindowBoundaries,
 ): RuntimeState {
-  if (expired === undefined) return state;
+  const countedThrough = state.rolling.throughBucketStart;
+  if (countedThrough === null) return state;
+  const nothing: RollingCount = { checks: 0, successes: 0 };
+  // A boundary at or past countedThrough means the whole counted range has
+  // expired; reset instead of trusting a history read that cannot see
+  // accumulators finalized in this same run.
+  const advanceWindow = (window: "24h" | "7d" | "30d"): RollingCount =>
+    boundaries[window] >= countedThrough
+      ? { checks: 0, successes: 0 }
+      : subtract(state.rolling[window], expired?.[window] ?? nothing);
   return {
     ...state,
     rolling: {
       ...state.rolling,
-      "24h": subtract(state.rolling["24h"], expired["24h"]),
-      "7d": subtract(state.rolling["7d"], expired["7d"]),
-      "30d": subtract(state.rolling["30d"], expired["30d"]),
+      "24h": advanceWindow("24h"),
+      "7d": advanceWindow("7d"),
+      "30d": advanceWindow("30d"),
     },
   };
 }
@@ -125,14 +142,28 @@ function applyExpired(
 function addCompletedFiveMinute(
   state: RuntimeState,
   bucket: BucketAggregate,
+  boundaries: RollingWindowBoundaries,
 ): RuntimeState {
+  // Buckets already outside a window are skipped so expiry never subtracts
+  // counts that were never added: future expiry windows start after the
+  // current boundaries and 30d expiry subtracts whole hourly rows.
+  const hourStart = Math.floor(bucket.bucketStart / ONE_HOUR_MS) * ONE_HOUR_MS;
   return {
     ...state,
     rolling: {
       ...state.rolling,
-      "24h": add(state.rolling["24h"], bucket),
-      "7d": add(state.rolling["7d"], bucket),
-      "30d": add(state.rolling["30d"], bucket),
+      "24h":
+        bucket.bucketStart > boundaries["24h"]
+          ? add(state.rolling["24h"], bucket)
+          : state.rolling["24h"],
+      "7d":
+        bucket.bucketStart > boundaries["7d"]
+          ? add(state.rolling["7d"], bucket)
+          : state.rolling["7d"],
+      "30d":
+        hourStart > boundaries["30d"]
+          ? add(state.rolling["30d"], bucket)
+          : state.rolling["30d"],
     },
   };
 }
@@ -179,33 +210,31 @@ export function reduceScheduledRun(
   const currentBucket =
     Math.floor(input.scheduledTime / FIVE_MINUTES_MS) * FIVE_MINUTES_MS;
   const throughBucketStart = currentBucket - FIVE_MINUTES_MS;
+  const boundaries = rollingWindowBoundaries(throughBucketStart);
   const nextMonitors: Record<string, RuntimeState> = {};
   const fiveMinuteRows: HistoryRow[] = [];
   const hourlyRows: HistoryRow[] = [];
   const incidentOpens: IncidentOpen[] = [];
   const incidentClosures: IncidentClosure[] = [];
   const notificationChanges: NotificationChange[] = [];
+  const purgeMonitorIds: string[] = [];
   const configIds = new Set(input.monitors.map((monitor) => monitor.id));
 
   for (const [monitorId, prior] of Object.entries(input.state.monitors)) {
     if (configIds.has(monitorId)) continue;
     const closure = closeIncident(prior, input.scheduledTime, "deleted");
     if (closure !== null) incidentClosures.push(closure);
-    const advanced = advanceAggregates(
-      cloneRuntime(prior),
-      input.scheduledTime,
-      null,
-      true,
-    );
-    fiveMinuteRows.push(...rows(monitorId, advanced.completedFiveMinutes));
-    hourlyRows.push(...rows(monitorId, advanced.completedHours));
+    // Deleted monitors drop their history rows instead of finalizing them;
+    // stale rows would otherwise poison rolling expiry if the monitor is
+    // later restored with fresh zeroed counters.
+    purgeMonitorIds.push(monitorId);
   }
 
   for (const monitor of input.monitors) {
     let runtime = cloneRuntime(
       input.state.monitors[monitor.id] ?? createRuntimeState(throughBucketStart),
     );
-    runtime = applyExpired(runtime, input.expired.get(monitor.id));
+    runtime = applyExpired(runtime, input.expired.get(monitor.id), boundaries);
     const result = monitor.enabled ? input.results.get(monitor.id) : null;
     if (monitor.enabled && result === undefined) {
       throw new Error("Missing scheduled check result");
@@ -223,7 +252,7 @@ export function reduceScheduledRun(
     );
     runtime = advanced.state;
     for (const completed of advanced.completedFiveMinutes) {
-      runtime = addCompletedFiveMinute(runtime, completed);
+      runtime = addCompletedFiveMinute(runtime, completed, boundaries);
     }
     runtime = {
       ...runtime,
@@ -295,5 +324,6 @@ export function reduceScheduledRun(
     incidentOpens,
     incidentClosures,
     notificationChanges,
+    purgeMonitorIds,
   };
 }

@@ -2,7 +2,7 @@
 
 Status: implementation contract  
 Target: Cloudflare Workers Free plan  
-Last reviewed: 2026-08-19
+Last reviewed: 2026-08-20
 
 `CONTEXT.md` defines product language. This file defines required behavior and architecture.
 
@@ -278,7 +278,7 @@ Scheduled event time identifies the check and aligns buckets. Wall time is only 
 
 ### Probe
 
-- One GET fetch, `redirect: "manual"`, 8-second AbortController timeout.
+- One GET fetch, `redirect: "manual"`, `cache: "no-store"` (probe the live origin, never an HTTP cache), 8-second AbortController timeout.
 - 200–299 succeeds; every other status fails.
 - Measure monotonic time to response headers.
 - Never read/store bodies; promptly cancel/discard them.
@@ -296,7 +296,7 @@ Probe enabled monitors through a fixed pool of five with stable monitor/result a
 - Pending/up + success: up, reset failure/tentative details; initial success emits no webhook.
 - Down + success: up, close incident as recovered, emit RECOVERED.
 - Disable: no checks/public display; close open incident as disabled, no webhook, reset to pending.
-- Delete: close open incident as deleted, no webhook; retain state only long enough to finalize accumulators, then remove it.
+- Delete: close open incident as deleted, no webhook; remove packed state and purge the monitor's history rows in the same transaction, so a later restore starts from clean counters instead of tripping rolling expiry on stale rows. Incidents are retained.
 
 Only DOWN and RECOVERED notify. One run creates at most one payload containing every transition.
 
@@ -320,7 +320,13 @@ At five-minute rollover:
 3. advance packed 24h/7d/30d rolling counters, subtracting the entire expired range across missed intervals;
 4. start current accumulators from current results.
 
-At hour rollover, write finalized active hours in chunks and start the new hour. Finalize stale disabled/deleted accumulators without fabricating a result.
+Rolling counters must stay exactly consistent with history-based expiry:
+
+- a finalized bucket already outside a window is never added to that counter;
+- a counter whose entire window has expired resets to zero without a history read (rows finalized in the same run are not yet readable);
+- the 30-day window expires whole hourly rows at an hour-aligned boundary, so it may cover up to one extra hour.
+
+At hour rollover, write finalized active hours in chunks and start the new hour. Finalize stale disabled accumulators without fabricating a result; deleted monitors purge their history instead.
 
 Once per UTC day, use `lastCleanupDay` to delete five-minute rows older than seven days, hourly rows older than 30 days, sent outbox rows older than seven days, and failed rows older than 30 days. Update cleanup checkpoint in the same transaction.
 
@@ -328,7 +334,7 @@ Once per UTC day, use `lastCleanupDay` to delete five-minute rows older than sev
 
 After probes, reduce all effects into one deterministic statement plan. One D1 `batch()` transaction contains applicable history rows, incident opens/closes, at most one outbox row, cleanup, and one app-state update. `batch()` rollback prevents partial monitoring truth.
 
-After commit, if `WEBHOOK_URL` exists:
+Outbox delivery runs only at the end of a completed run that holds the lease; lease-held, duplicate, and lost-lease invocations do not deliver. After commit, if `WEBHOOK_URL` exists:
 
 1. select at most four due pending rows;
 2. POST JSON concurrently with 8-second timeout and manual redirects;
@@ -338,6 +344,8 @@ After commit, if `WEBHOOK_URL` exists:
 6. batch the at-most-four D1 result statements.
 
 If no webhook is configured, transitions create no outbox row. The HTTPS webhook URL is the only webhook credential; no signature in v1. Delivery failure never rolls back monitoring truth.
+
+Delivery is at-least-once: if recording a successful send fails, a later run may POST an identical payload again. Consumers that need exactly-once must deduplicate on payload content.
 
 Payload is versioned, contains no URL, and batches all run transitions:
 

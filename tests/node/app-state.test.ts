@@ -83,6 +83,36 @@ describe("packed app state", () => {
         },
       }),
     ],
+    [
+      "misaligned active buckets",
+      1,
+      JSON.stringify({
+        ...createAppState(),
+        monitors: {
+          main: {
+            ...createRuntimeState(null),
+            activeFiveMinute: {
+              bucketStart: 0,
+              checks: 1,
+              successes: 1,
+              failures: 0,
+              latencySum: 10,
+              latencyMin: 10,
+              latencyMax: 10,
+            },
+            activeHour: {
+              bucketStart: 3_600_000,
+              checks: 1,
+              successes: 1,
+              failures: 0,
+              latencySum: 10,
+              latencyMin: 10,
+              latencyMax: 10,
+            },
+          },
+        },
+      }),
+    ],
   ])("rejects %s instead of silently resetting", (_label, version, payload) => {
     expect(() => decodeAppState(version, payload)).toThrow("Invalid app state");
   });

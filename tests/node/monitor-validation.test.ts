@@ -21,6 +21,25 @@ describe("monitor validation", () => {
     });
   });
 
+  it("accepts a globally routable IPv6 literal", () => {
+    expect(
+      validateMonitorInput({
+        name: "Anycast DNS",
+        url: "https://[2606:4700:4700::1111]/",
+        position: 0,
+        enabled: true,
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        name: "Anycast DNS",
+        url: "https://[2606:4700:4700::1111]/",
+        position: 0,
+        enabled: true,
+      },
+    });
+  });
+
   it("does not mistake a DNS hostname for a reserved IPv6 literal", () => {
     const result = validateMonitorInput({
       name: "FC status",
@@ -48,6 +67,8 @@ describe("monitor validation", () => {
     ["mapped IPv6", "http://[::ffff:127.0.0.1]/"],
     ["discard-only IPv6", "http://[100::1]/"],
     ["documentation IPv6", "http://[3fff::1]/"],
+    ["unassigned IPv6", "http://[4000::1]/"],
+    ["high reserved IPv6", "http://[8000::1]/"],
   ])("rejects %s targets", (_label, url) => {
     const result = validateMonitorInput({
       name: "Private target",

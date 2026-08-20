@@ -80,31 +80,28 @@ function ipv6Number(address: string): bigint | null {
   return parts.reduce((value, part) => (value << 16n) + BigInt(`0x${part}`), 0n);
 }
 
-const RESERVED_IPV6_RANGES = [
-  ["::", 128],
-  ["::1", 128],
-  ["::ffff:0:0", 96],
-  ["64:ff9b::", 96],
-  ["64:ff9b:1::", 48],
-  ["100::", 64],
+// Only global unicast space (2000::/3) is routable; everything outside it is
+// reserved. Within it, exclude IANA special-purpose ranges.
+const SPECIAL_PURPOSE_GLOBAL_IPV6_RANGES = [
   ["2001::", 23],
   ["2001:db8::", 32],
   ["2002::", 16],
   ["3fff::", 20],
-  ["5f00::", 16],
-  ["fc00::", 7],
-  ["fe80::", 10],
-  ["ff00::", 8],
 ] as const;
+
+function inIpv6Range(address: bigint, base: string, prefix: number): boolean {
+  const baseAddress = ipv6Number(base);
+  const shift = BigInt(128 - prefix);
+  return baseAddress !== null && address >> shift === baseAddress >> shift;
+}
 
 function isReservedIpv6(hostname: string): boolean {
   const address = ipv6Number(hostname);
   if (address === null) return false;
-  return RESERVED_IPV6_RANGES.some(([base, prefix]) => {
-    const baseAddress = ipv6Number(base);
-    const shift = BigInt(128 - prefix);
-    return baseAddress !== null && address >> shift === baseAddress >> shift;
-  });
+  if (!inIpv6Range(address, "2000::", 3)) return true;
+  return SPECIAL_PURPOSE_GLOBAL_IPV6_RANGES.some(([base, prefix]) =>
+    inIpv6Range(address, base, prefix),
+  );
 }
 
 function isPublicHttpUrl(value: string): URL | null {

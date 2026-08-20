@@ -111,4 +111,47 @@ describe("history aggregation", () => {
       ],
     });
   });
+
+  it("skips expiry reads once a rolling window has fully elapsed", () => {
+    const kept = createRuntimeState(0);
+
+    expect(
+      planRollingExpiry({ kept }, ONE_DAY_MS + 600_000, new Set(["kept"])),
+    ).toMatchObject({
+      dayWindows: [],
+      weekWindows: [
+        {
+          monitorId: "kept",
+          afterExclusive: -7 * ONE_DAY_MS,
+          throughInclusive: 300_000 - 6 * ONE_DAY_MS,
+        },
+      ],
+    });
+  });
+
+  it("rejects an active hour that does not own the completing five-minute bucket", () => {
+    const state = createRuntimeState(null);
+    state.activeFiveMinute = {
+      bucketStart: 0,
+      checks: 1,
+      successes: 1,
+      failures: 0,
+      latencySum: 10,
+      latencyMin: 10,
+      latencyMax: 10,
+    };
+    state.activeHour = {
+      bucketStart: ONE_HOUR_MS,
+      checks: 1,
+      successes: 1,
+      failures: 0,
+      latencySum: 10,
+      latencyMin: 10,
+      latencyMax: 10,
+    };
+
+    expect(() => advanceAggregates(state, 15 * 60_000, null)).toThrow(
+      "Invalid aggregation hour",
+    );
+  });
 });

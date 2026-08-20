@@ -88,6 +88,27 @@ export interface RollingExpiryPlan {
   monthWindows: ExpiryWindow[];
 }
 
+export interface RollingWindowBoundaries {
+  "24h": number;
+  "7d": number;
+  "30d": number;
+}
+
+// Rolling counters only include buckets strictly newer than these boundaries.
+// The 30-day boundary is hour-aligned because its expiry subtracts whole
+// hourly rows, so that window may cover up to one extra hour.
+export function rollingWindowBoundaries(
+  throughBucketStart: number,
+): RollingWindowBoundaries {
+  return {
+    "24h": throughBucketStart - ONE_DAY_MS,
+    "7d": throughBucketStart - 7 * ONE_DAY_MS,
+    "30d":
+      Math.floor((throughBucketStart - 30 * ONE_DAY_MS) / ONE_HOUR_MS) *
+      ONE_HOUR_MS,
+  };
+}
+
 export function planRollingExpiry(
   monitors: AppStateV1["monitors"],
   scheduledTime: number,
@@ -95,6 +116,7 @@ export function planRollingExpiry(
 ): RollingExpiryPlan {
   const nextThrough =
     bucketStart(scheduledTime, FIVE_MINUTES_MS) - FIVE_MINUTES_MS;
+  const boundaries = rollingWindowBoundaries(nextThrough);
   const advancing = Object.entries(monitors).flatMap(([monitorId, runtime]) => {
     const countedThrough = runtime.rolling.throughBucketStart;
     if (
@@ -106,23 +128,40 @@ export function planRollingExpiry(
     }
     return [{ monitorId, countedThrough }];
   });
-  const fiveMinuteWindow = (windowMs: number): ExpiryWindow[] =>
-    advancing.map(({ monitorId, countedThrough }) => ({
-      monitorId,
-      afterExclusive: countedThrough - windowMs,
-      throughInclusive: nextThrough - windowMs,
-    }));
+  // When a boundary reaches countedThrough, everything counted has expired;
+  // the reducer resets that counter to zero, so no expiry read is needed.
+  // Reads would also be unsafe there: buckets finalized this run are not yet
+  // in history, so a read across such a gap under-reports.
+  const windows = (
+    afterExclusive: (countedThrough: number) => number,
+    throughInclusive: number,
+  ): ExpiryWindow[] =>
+    advancing.flatMap(({ monitorId, countedThrough }) =>
+      throughInclusive >= countedThrough
+        ? []
+        : [
+            {
+              monitorId,
+              afterExclusive: afterExclusive(countedThrough),
+              throughInclusive,
+            },
+          ],
+    );
   return {
-    dayWindows: fiveMinuteWindow(ONE_DAY_MS),
-    weekWindows: fiveMinuteWindow(7 * ONE_DAY_MS),
-    monthWindows: advancing.map(({ monitorId, countedThrough }) => ({
-      monitorId,
-      afterExclusive:
+    dayWindows: windows(
+      (countedThrough) => countedThrough - ONE_DAY_MS,
+      boundaries["24h"],
+    ),
+    weekWindows: windows(
+      (countedThrough) => countedThrough - 7 * ONE_DAY_MS,
+      boundaries["7d"],
+    ),
+    monthWindows: windows(
+      (countedThrough) =>
         Math.floor((countedThrough - 30 * ONE_DAY_MS) / ONE_HOUR_MS) *
         ONE_HOUR_MS,
-      throughInclusive:
-        Math.floor((nextThrough - 30 * ONE_DAY_MS) / ONE_HOUR_MS) * ONE_HOUR_MS,
-    })),
+      boundaries["30d"],
+    ),
   };
 }
 
@@ -130,7 +169,6 @@ export function advanceAggregates(
   state: RuntimeState,
   scheduledTime: number,
   result: ProbeResult | null,
-  finalizeRemaining = false,
 ): AggregationAdvance {
   const currentFiveMinute = bucketStart(scheduledTime, FIVE_MINUTES_MS);
   const currentHour = bucketStart(scheduledTime, ONE_HOUR_MS);
@@ -139,25 +177,20 @@ export function advanceAggregates(
   let activeFiveMinute = state.activeFiveMinute;
   let activeHour = state.activeHour;
 
-  if (
-    activeFiveMinute !== null &&
-    (finalizeRemaining || activeFiveMinute.bucketStart < currentFiveMinute)
-  ) {
+  if (activeFiveMinute !== null && activeFiveMinute.bucketStart < currentFiveMinute) {
     completedFiveMinutes.push(activeFiveMinute);
     const hour = bucketStart(activeFiveMinute.bucketStart, ONE_HOUR_MS);
+    if (activeHour !== null && activeHour.bucketStart !== hour) {
+      throw new Error("Invalid aggregation hour");
+    }
     activeHour =
       activeHour === null
         ? mergeAggregates(emptyBucket(hour), activeFiveMinute)
-        : activeHour.bucketStart === hour
-          ? mergeAggregates(activeHour, activeFiveMinute)
-          : activeHour;
+        : mergeAggregates(activeHour, activeFiveMinute);
     activeFiveMinute = null;
   }
 
-  if (
-    activeHour !== null &&
-    (finalizeRemaining || activeHour.bucketStart < currentHour)
-  ) {
+  if (activeHour !== null && activeHour.bucketStart < currentHour) {
     completedHours.push(activeHour);
     activeHour = null;
   }

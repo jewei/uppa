@@ -49,6 +49,7 @@ describe("scheduled check probe", () => {
     expect(fetcher).toHaveBeenCalledWith("https://example.com/health", {
       method: "GET",
       redirect: "manual",
+      cache: "no-store",
       signal: expect.any(AbortSignal),
     });
     expect(cancel).toHaveBeenCalledOnce();
@@ -64,6 +65,32 @@ describe("scheduled check probe", () => {
         timeoutMs: 50,
       }),
     ).resolves.toEqual({ ok: true, statusCode: 200, latencyMs: 0 });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("treats a 302 as an invalid status without following the redirect", async () => {
+    const cancel = vi.fn(async () => undefined);
+    const fetcher = vi.fn(async () => response(302, cancel));
+
+    const result = await probe("https://example.com/", {
+      fetcher,
+      monotonicNow: () => 10,
+      timeoutMs: 50,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "invalid_status",
+      statusCode: 302,
+      latencyMs: 0,
+      error: "Expected status 200-299, received 302",
+    });
+    expect(fetcher).toHaveBeenCalledWith("https://example.com/", {
+      method: "GET",
+      redirect: "manual",
+      cache: "no-store",
+      signal: expect.any(AbortSignal),
+    });
     expect(cancel).toHaveBeenCalledOnce();
   });
 

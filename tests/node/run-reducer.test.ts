@@ -168,6 +168,7 @@ describe("scheduled run reduction", () => {
       lastCheckedAt: null,
     });
     expect(reduced.state.monitors.deleted).toBeUndefined();
+    expect(reduced.purgeMonitorIds).toEqual(["deleted"]);
     expect(reduced.notificationChanges).toEqual([]);
     expect(reduced.incidentClosures).toEqual([
       {
@@ -185,9 +186,7 @@ describe("scheduled run reduction", () => {
         lastStatusCode: null,
       },
     ]);
-    expect(reduced.fiveMinuteRows).toEqual([
-      expect.objectContaining({ monitorId: "deleted", bucketStart: 0, checks: 1 }),
-    ]);
+    expect(reduced.fiveMinuteRows).toEqual([]);
   });
 
   it("ages rolling windows across a missed interval and adds only recorded checks", () => {
@@ -233,6 +232,36 @@ describe("scheduled run reduction", () => {
     expect(reduced.state.monitors.main?.activeFiveMinute).toMatchObject({
       bucketStart: 900_000,
       checks: 1,
+    });
+  });
+
+  it("does not add a completed bucket that already aged out of a rolling window", () => {
+    const day = 24 * 60 * 60_000;
+    const state = createAppState();
+    const runtime = createRuntimeState(0);
+    runtime.rolling["24h"] = { checks: 4, successes: 4 };
+    runtime.activeFiveMinute = {
+      bucketStart: 300_000,
+      checks: 3,
+      successes: 3,
+      failures: 0,
+      latencySum: 30,
+      latencyMin: 10,
+      latencyMax: 10,
+    };
+    state.monitors.main = runtime;
+
+    const reduced = reduceScheduledRun({
+      state,
+      monitors: [{ id: "main", name: "Main", url: "https://main.example/", enabled: true }],
+      results: new Map([["main", success]]),
+      scheduledTime: 600_000 + day,
+      expired: new Map(),
+    });
+
+    expect(reduced.state.monitors.main?.rolling).toMatchObject({
+      throughBucketStart: 300_000 + day,
+      "24h": { checks: 0, successes: 0 },
     });
   });
 });

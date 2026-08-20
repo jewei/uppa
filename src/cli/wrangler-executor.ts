@@ -8,6 +8,7 @@ import type { DatabaseTarget, SqlResult } from "./monitor-cli";
 interface SpawnResult {
   exitCode: number;
   stdout: string;
+  stderr?: string;
 }
 
 interface WranglerExecutorDependencies {
@@ -64,6 +65,23 @@ function parseResults(value: unknown): SqlResult {
   return { rows, changes };
 }
 
+function describesMonitorLimit(value: unknown): boolean {
+  if (typeof value === "string") return value.includes("monitor_limit");
+  if (!(value instanceof Error)) return false;
+  const extra = value as Error & { stderr?: unknown; stdout?: unknown };
+  return (
+    extra.message.includes("monitor_limit") ||
+    (typeof extra.stderr === "string" && extra.stderr.includes("monitor_limit")) ||
+    (typeof extra.stdout === "string" && extra.stdout.includes("monitor_limit"))
+  );
+}
+
+function sanitizedWranglerError(error: unknown): Error {
+  if (error instanceof Error && error.message === "monitor_limit") return error;
+  if (describesMonitorLimit(error)) return new Error("monitor_limit");
+  return new Error("Wrangler D1 command failed");
+}
+
 export async function executeWranglerSql(
   target: DatabaseTarget,
   sql: string,
@@ -94,10 +112,18 @@ export async function executeWranglerSql(
       "--yes",
       "--json",
     ]);
-    if (result.exitCode !== 0) throw new Error("Wrangler exited unsuccessfully");
+    if (result.exitCode !== 0) {
+      if (
+        describesMonitorLimit(result.stdout) ||
+        describesMonitorLimit(result.stderr)
+      ) {
+        throw new Error("monitor_limit");
+      }
+      throw new Error("Wrangler exited unsuccessfully");
+    }
     return parseResults(parseJsonOutput(result.stdout));
-  } catch {
-    throw new Error("Wrangler D1 command failed");
+  } catch (error) {
+    throw sanitizedWranglerError(error);
   } finally {
     await rm(directory, { force: true, recursive: true });
   }

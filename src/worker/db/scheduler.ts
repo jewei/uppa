@@ -146,13 +146,18 @@ export class SchedulerStore {
       this.#loadExpiredRange("history_1h", "hour_start", plan.monthWindows),
     ]);
 
+    const monitorIds = new Set(
+      [...plan.dayWindows, ...plan.weekWindows, ...plan.monthWindows].map(
+        (window) => window.monitorId,
+      ),
+    );
     return new Map(
-      plan.dayWindows.map((window) => [
-        window.monitorId,
+      [...monitorIds].map((monitorId) => [
+        monitorId,
         {
-          "24h": day.get(window.monitorId) ?? { checks: 0, successes: 0 },
-          "7d": week.get(window.monitorId) ?? { checks: 0, successes: 0 },
-          "30d": month.get(window.monitorId) ?? { checks: 0, successes: 0 },
+          "24h": day.get(monitorId) ?? { checks: 0, successes: 0 },
+          "7d": week.get(monitorId) ?? { checks: 0, successes: 0 },
+          "30d": month.get(monitorId) ?? { checks: 0, successes: 0 },
         },
       ]),
     );

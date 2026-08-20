@@ -115,7 +115,9 @@ export async function runScheduled(
         await store.persist(plans);
       }
     }
-    if (outcome !== "lost-lease" && input.webhook !== undefined) {
+    // Duplicate/out-of-order events skip entirely; only a completed run
+    // holding the lease performs outbox delivery.
+    if (outcome === "completed" && input.webhook !== undefined) {
       externalFetches += await deliverPendingOutbox({
         database: input.database,
         webhook: input.webhook,

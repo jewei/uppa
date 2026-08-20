@@ -86,4 +86,35 @@ describe("Wrangler D1 executor", () => {
 
     await expect(access(sqlPath)).rejects.toThrow();
   });
+
+  it("surfaces the monitor cap without leaking other Wrangler errors", async () => {
+    await expect(
+      executeWranglerSql("local", "INSERT INTO monitors VALUES (1);", {
+        spawn: async () => ({
+          exitCode: 1,
+          stdout: "ABORT: monitor_limit",
+          stderr: "",
+        }),
+      }),
+    ).rejects.toThrow("monitor_limit");
+
+    await expect(
+      executeWranglerSql("local", "INSERT INTO monitors VALUES (1);", {
+        spawn: async () => {
+          const error = new Error("spawn failed");
+          (error as Error & { stderr: string }).stderr =
+            "D1_ERROR: monitor_limit at private.example";
+          throw error;
+        },
+      }),
+    ).rejects.toThrow("monitor_limit");
+
+    await expect(
+      executeWranglerSql("local", "SELECT 1;", {
+        spawn: async () => {
+          throw new Error("secret host details https://private.example/");
+        },
+      }),
+    ).rejects.toThrow("Wrangler D1 command failed");
+  });
 });

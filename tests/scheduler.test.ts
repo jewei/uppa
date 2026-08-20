@@ -47,6 +47,23 @@ async function loadState() {
   return decodeAppState(row.version, row.payload);
 }
 
+function waitUntilContext(): {
+  context: ExecutionContext;
+  pending: Promise<unknown>[];
+} {
+  const pending: Promise<unknown>[] = [];
+  return {
+    pending,
+    context: {
+      waitUntil(promise: Promise<unknown>) {
+        pending.push(promise);
+      },
+      passThroughOnException() {},
+      props: {},
+    } as ExecutionContext,
+  };
+}
+
 interface StatementChunks {
   historyRows: number[];
   incidentRows: number[];
@@ -196,6 +213,44 @@ describe("scheduled checks", () => {
       lastLatencyMs: 25,
       activeFiveMinute: { bucketStart: 300_000, checks: 1 },
     });
+  });
+
+  it("does not deliver the outbox on a duplicate scheduled event", async () => {
+    await addMonitor();
+    await env.DB.prepare(
+      `INSERT INTO notification_outbox
+        (id, created_at, payload, attempts, next_attempt_at, sent_at, failed_at)
+       VALUES ('pending', 1, '{}', 0, 0, NULL, NULL)`,
+    ).run();
+    await runScheduled({
+      database: env.DB,
+      scheduledTime: 300_000,
+      wallNow: () => 1_000_000,
+      token: "first-owner",
+      check: async () => ({ ok: true, statusCode: 200, latencyMs: 10 }),
+    });
+    const send = vi.fn(async () => "success" as const);
+
+    const duplicate = await runScheduled({
+      database: env.DB,
+      scheduledTime: 300_000,
+      wallNow: () => 1_001_000,
+      token: "second-owner",
+      check: async () => ({ ok: true, statusCode: 200, latencyMs: 10 }),
+      webhook: {
+        url: "https://notifications.invalid/endpoint",
+        send,
+        terminalFailure: vi.fn(),
+      },
+    });
+
+    expect(duplicate.outcome).toBe("deduplicated");
+    expect(send).not.toHaveBeenCalled();
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM notification_outbox WHERE sent_at IS NULL",
+      ).first(),
+    ).toEqual({ count: 1 });
   });
 
   it("commits a DOWN payload before a failed delivery is retried", async () => {
@@ -553,7 +608,7 @@ describe("scheduled checks", () => {
     ).toEqual({ sent: 4, pending: 1 });
   });
 
-  it("finalizes 40 deleted leftovers under the scheduled D1 budget", async () => {
+  it("purges 40 deleted leftovers under the scheduled D1 budget", async () => {
     const insert = env.DB.prepare(
       `INSERT INTO monitors
         (id, name, url, enabled, position, created_at, updated_at, deleted_at)
@@ -562,6 +617,26 @@ describe("scheduled checks", () => {
     await env.DB.batch(
       Array.from({ length: 40 }, (_, index) =>
         insert.bind(`next-${index}`, `Next ${index}`, `https://next-${index}.example/`),
+      ),
+    );
+    const historyInsert = env.DB.prepare(
+      `INSERT INTO history_5m
+        (monitor_id, bucket_start, checks, successes, failures, latency_sum, latency_min, latency_max)
+       VALUES (?, 0, 1, 1, 0, 10, 10, 10)`,
+    );
+    const hourlyInsert = env.DB.prepare(
+      `INSERT INTO history_1h
+        (monitor_id, hour_start, checks, successes, failures, latency_sum, latency_min, latency_max)
+       VALUES (?, 0, 1, 1, 0, 10, 10, 10)`,
+    );
+    await env.DB.batch(
+      Array.from({ length: 40 }, (_, index) =>
+        historyInsert.bind(`gone-${index}`),
+      ),
+    );
+    await env.DB.batch(
+      Array.from({ length: 40 }, (_, index) =>
+        hourlyInsert.bind(`gone-${index}`),
       ),
     );
     const outboxInsert = env.DB.prepare(
@@ -649,19 +724,84 @@ describe("scheduled checks", () => {
 
     expect(result).toMatchObject({ outcome: "completed", externalFetches: 44 });
     expect(result.d1Statements).toBeLessThanOrEqual(40);
-    expect(chunks.historyRows).toEqual([10, 10, 10, 10, 10, 10, 10, 10]);
     expect(chunks.maximumBindings).toBeLessThanOrEqual(100);
     expect(
       await env.DB.prepare(
         "SELECT COUNT(*) AS count FROM incidents WHERE ended_reason = 'deleted'",
       ).first(),
     ).toEqual({ count: 40 });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM history_5m WHERE monitor_id LIKE 'gone-%'",
+      ).first(),
+    ).toEqual({ count: 0 });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM history_1h WHERE monitor_id LIKE 'gone-%'",
+      ).first(),
+    ).toEqual({ count: 0 });
     expect(Object.keys((await loadState()).monitors)).toHaveLength(40);
     expect(
       Object.keys((await loadState()).monitors).every((id) =>
         id.startsWith("next-"),
       ),
     ).toBe(true);
+  });
+
+  it("keeps scheduling after a deleted monitor is restored", async () => {
+    // Regression: stale history for a restored monitor must not make rolling
+    // expiry subtract counts that were never added, which would abort every
+    // subsequent run before persistence.
+    await addMonitor("restored");
+    await env.DB.prepare(
+      "UPDATE monitors SET deleted_at = 100 WHERE id = 'restored'",
+    ).run();
+    const day = 24 * 60 * 60_000;
+    const state = createAppState();
+    state.lastScheduledAt = 40 * day;
+    state.monitors.restored = createRuntimeState(40 * day - 5 * 60_000);
+    await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
+      .bind(encodeAppState(state))
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO history_5m
+        (monitor_id, bucket_start, checks, successes, failures, latency_sum, latency_min, latency_max)
+       VALUES ('restored', ?, 5, 5, 0, 50, 10, 10)`,
+    )
+      .bind(40 * day - day)
+      .run();
+
+    // Delete run: monitor left the configuration, so its state and rows go.
+    await runScheduled({
+      database: env.DB,
+      scheduledTime: 40 * day + 60_000,
+      wallNow: () => 40 * day + 60_000,
+      token: "delete-run",
+      check: async () => ({ ok: true, statusCode: 200, latencyMs: 10 }),
+    });
+    expect(
+      await env.DB.prepare(
+        "SELECT COUNT(*) AS count FROM history_5m WHERE monitor_id = 'restored'",
+      ).first(),
+    ).toEqual({ count: 0 });
+
+    // Restore, then advance until the 7d expiry window would have covered the
+    // stale pre-deletion row (day 39) had it survived.
+    await env.DB.prepare(
+      "UPDATE monitors SET deleted_at = NULL WHERE id = 'restored'",
+    ).run();
+    for (const offset of [120_000, 5 * day + 60_000, 6 * day + 660_000]) {
+      const scheduledTime = 40 * day + offset;
+      const result = await runScheduled({
+        database: env.DB,
+        scheduledTime,
+        wallNow: () => scheduledTime,
+        token: `restore-${offset}`,
+        check: async () => ({ ok: true, statusCode: 200, latencyMs: 10 }),
+      });
+      expect(result.outcome).toBe("completed");
+    }
+    expect((await loadState()).monitors.restored?.status).toBe("up");
   });
 
   it("logs the run id and outcome without private URLs", async () => {
@@ -693,6 +833,84 @@ describe("scheduled checks", () => {
       d1Statements: expect.any(Number),
     });
     expect(lines[0]).not.toMatch(/https?:|example\/health|WEBHOOK/u);
+  });
+
+  it("classifies scheduled failures without logging raw exceptions", async () => {
+    const { default: worker } = await import("../src/worker/index");
+    await env.DB.prepare("UPDATE app_state SET payload = 'not-json' WHERE id = 1").run();
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((message) => {
+      lines.push(String(message));
+    });
+    const { context, pending } = waitUntilContext();
+
+    try {
+      worker.scheduled(
+        {
+          scheduledTime: 1_000,
+          cron: "* * * * *",
+          noRetry() {},
+        },
+        env,
+        context,
+      );
+      await Promise.all(pending);
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "null")).toEqual({
+      event: "scheduled_run_error",
+      scheduledTime: 1_000,
+      class: "Invalid app state",
+    });
+    expect(lines[0]).not.toMatch(/not-json|SyntaxError|stack/u);
+  });
+
+  it("hides unclassified scheduled failures from logs", async () => {
+    const { default: worker } = await import("../src/worker/index");
+    await env.DB.prepare("DROP TABLE app_state").run();
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((message) => {
+      lines.push(String(message));
+    });
+    const { context, pending } = waitUntilContext();
+
+    try {
+      worker.scheduled(
+        {
+          scheduledTime: 2_000,
+          cron: "* * * * *",
+          noRetry() {},
+        },
+        env,
+        context,
+      );
+      await Promise.all(pending);
+    } finally {
+      spy.mockRestore();
+      await env.DB.prepare(
+        `CREATE TABLE app_state (
+           id INTEGER PRIMARY KEY CHECK(id = 1),
+           version INTEGER NOT NULL,
+           payload TEXT NOT NULL,
+           updated_at INTEGER NOT NULL
+         )`,
+      ).run();
+      await env.DB.prepare(
+        `INSERT INTO app_state (id, version, payload, updated_at)
+         VALUES (1, 1, '{"version":1,"lastScheduledAt":null,"lastCleanupDay":null,"updatedAt":null,"monitors":{}}', 0)`,
+      ).run();
+    }
+
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "null")).toEqual({
+      event: "scheduled_run_error",
+      scheduledTime: 2_000,
+      class: "unclassified",
+    });
+    expect(lines[0]).not.toMatch(/no such table|app_state|Error/u);
   });
 
   it("enforces one open incident per monitor in D1", async () => {

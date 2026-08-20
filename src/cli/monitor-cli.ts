@@ -102,20 +102,38 @@ function commandId(args: string[]): string | null {
   return id === undefined || id.trim() === "" ? null : id;
 }
 
+function reportMutation(
+  result: SqlResult,
+  id: string,
+  success: string,
+  dependencies: MonitorCliDependencies,
+): number {
+  if (result.changes !== 1) {
+    dependencies.write(`Monitor not found: ${id}`);
+    return 1;
+  }
+  dependencies.write(success);
+  return 0;
+}
+
 async function setEnabled(
   target: DatabaseTarget,
   id: string,
   enabled: boolean,
   dependencies: MonitorCliDependencies,
 ): Promise<number> {
-  await dependencies.execute(
+  const result = await dependencies.execute(
     target,
     `UPDATE monitors
 SET enabled = ${enabled ? 1 : 0}, updated_at = ${sqlIntegerLiteral(dependencies.now())}
 WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
-  dependencies.write(`Monitor ${enabled ? "enabled" : "disabled"}: ${id}`);
-  return 0;
+  return reportMutation(
+    result,
+    id,
+    `Monitor ${enabled ? "enabled" : "disabled"}: ${id}`,
+    dependencies,
+  );
 }
 
 async function orderMonitor(
@@ -128,14 +146,18 @@ async function orderMonitor(
     dependencies.write("Position must be an integer");
     return 1;
   }
-  await dependencies.execute(
+  const result = await dependencies.execute(
     target,
     `UPDATE monitors
 SET position = ${sqlIntegerLiteral(position)}, updated_at = ${sqlIntegerLiteral(dependencies.now())}
 WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
-  dependencies.write(`Monitor position updated: ${id}`);
-  return 0;
+  return reportMutation(
+    result,
+    id,
+    `Monitor position updated: ${id}`,
+    dependencies,
+  );
 }
 
 async function deleteMonitor(
@@ -148,7 +170,7 @@ async function deleteMonitor(
     return 1;
   }
   const now = dependencies.now();
-  await dependencies.execute(
+  const result = await dependencies.execute(
     target,
     `UPDATE monitors
 SET enabled = 0,
@@ -156,8 +178,7 @@ SET enabled = 0,
     updated_at = ${sqlIntegerLiteral(now)}
 WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
-  dependencies.write(`Monitor deleted: ${id}`);
-  return 0;
+  return reportMutation(result, id, `Monitor deleted: ${id}`, dependencies);
 }
 
 function parseEnabled(value: string): boolean | null {
@@ -188,7 +209,7 @@ async function editMonitor(
   }
 
   const monitor = validated.value;
-  await dependencies.execute(
+  const result = await dependencies.execute(
     target,
     `UPDATE monitors
 SET name = ${sqlTextLiteral(monitor.name)},
@@ -198,8 +219,7 @@ SET name = ${sqlTextLiteral(monitor.name)},
     updated_at = ${sqlIntegerLiteral(dependencies.now())}
 WHERE id = ${sqlTextLiteral(id)} AND deleted_at IS NULL;`,
   );
-  dependencies.write(`Monitor updated: ${id}`);
-  return 0;
+  return reportMutation(result, id, `Monitor updated: ${id}`, dependencies);
 }
 
 async function addMonitor(
@@ -235,7 +255,15 @@ async function addMonitor(
   ${sqlIntegerLiteral(now)},
   NULL
 );`;
-  await dependencies.execute(target, sql);
+  try {
+    await dependencies.execute(target, sql);
+  } catch (error) {
+    if (error instanceof Error && error.message === "monitor_limit") {
+      dependencies.write("Monitor limit reached: at most 40 monitors");
+      return 1;
+    }
+    throw error;
+  }
   dependencies.write(`Monitor added: ${monitor.name}`);
   return 0;
 }

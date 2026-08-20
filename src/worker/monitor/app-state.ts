@@ -136,6 +136,18 @@ function hasValidFailureState(value: Record<string, unknown>): boolean {
     : value.status === "down" && value.openIncidentId !== null;
 }
 
+// Aggregation always flushes an older active hour before starting a new
+// five-minute bucket, so when both accumulators exist they share one hour.
+function hasAlignedActiveBuckets(value: Record<string, unknown>): boolean {
+  if (!isRecord(value.activeFiveMinute) || !isRecord(value.activeHour)) {
+    return true;
+  }
+  const fiveMinuteStart = value.activeFiveMinute.bucketStart;
+  const hourStart = value.activeHour.bucketStart;
+  if (!isInteger(fiveMinuteStart) || !isInteger(hourStart)) return true;
+  return Math.floor(fiveMinuteStart / ONE_HOUR_MS) * ONE_HOUR_MS === hourStart;
+}
+
 function isRuntimeState(value: unknown): value is RuntimeState {
   if (!isRecord(value) || !isRecord(value.rolling)) return false;
   if (
@@ -153,6 +165,7 @@ function isRuntimeState(value: unknown): value is RuntimeState {
     (value.activeFiveMinute !== null &&
       !isBucket(value.activeFiveMinute, FIVE_MINUTES_MS)) ||
     (value.activeHour !== null && !isBucket(value.activeHour, ONE_HOUR_MS)) ||
+    !hasAlignedActiveBuckets(value) ||
     (value.rolling.throughBucketStart !== null &&
       !isInteger(value.rolling.throughBucketStart)) ||
     (value.rolling.throughBucketStart !== null &&

@@ -115,12 +115,14 @@ async function handleRequest(
 
     const historyMatch = /^\/api\/monitors\/([^/]+)\/history$/u.exec(url.pathname);
     if (request.method === "GET" && historyMatch?.[1] !== undefined) {
-      return await handleHistory(
-        request,
-        env,
-        context,
-        decodeURIComponent(historyMatch[1]),
-      );
+      let monitorId: string;
+      try {
+        monitorId = decodeURIComponent(historyMatch[1]);
+      } catch {
+        // Malformed percent-encoding is a client error, not a server failure.
+        return apiError("not_found", "Monitor not found", 404);
+      }
+      return await handleHistory(request, env, context, monitorId);
     }
   } catch {
     return apiError("internal_error", "Request could not be completed", 500);
@@ -131,6 +133,37 @@ async function handleRequest(
   }
 
   return apiError("not_found", "Resource not found", 404);
+}
+
+// Known internal error messages that are safe to log verbatim. Anything else
+// (for example raw D1 driver errors) is logged only as "unclassified" so no
+// raw exception text, stack, or URL reaches the logs.
+const SAFE_SCHEDULED_ERROR_CLASSES = new Set([
+  "Missing app state",
+  "Invalid app state",
+  "Invalid monitor row",
+  "Monitor limit exceeded",
+  "Scheduled D1 query budget exceeded",
+  "Invalid rolling expiration",
+  "Invalid history row",
+  "Invalid outbox row",
+  "Missing scheduled check result",
+  "Invalid recovery transition",
+  "Invalid incident transition",
+  "Invalid aggregation hour",
+]);
+
+function logScheduledError(scheduledTime: number, error: unknown): void {
+  const message = error instanceof Error ? error.message : "";
+  console.error(
+    JSON.stringify({
+      event: "scheduled_run_error",
+      scheduledTime,
+      class: SAFE_SCHEDULED_ERROR_CLASSES.has(message)
+        ? message
+        : "unclassified",
+    }),
+  );
 }
 
 export default {
@@ -161,7 +194,10 @@ export default {
                 },
               },
             }),
-      }).then(() => undefined),
+      }).then(
+        () => undefined,
+        (error: unknown) => logScheduledError(controller.scheduledTime, error),
+      ),
     );
   },
 } satisfies ExportedHandler<Env>;

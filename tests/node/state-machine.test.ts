@@ -66,5 +66,6 @@ describe("monitoring status", () => {
 
     expect(failed.lastLatencyMs).toBe(42);
     expect(failed.lastCheckedAt).toBe(2_000);
+    expect(failed.status).toBe("up");
   });
 });

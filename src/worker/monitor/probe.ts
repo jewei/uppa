@@ -37,6 +37,9 @@ export async function probe(
     const response = await dependencies.fetcher(url, {
       method: "GET",
       redirect: "manual",
+      // Bypass HTTP caches so Cloudflare-fronted origins are probed live
+      // instead of answered from a cached object while down.
+      cache: "no-store",
       signal: controller.signal,
     });
     const latencyMs = Math.max(

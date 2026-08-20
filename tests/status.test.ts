@@ -211,6 +211,37 @@ describe("public status", () => {
     expect(text).not.toMatch(/private\.example|Network request failed|tentative/u);
   });
 
+  it("keeps overall status operational after a first failure on an up monitor", async () => {
+    const now = Date.now();
+    await env.DB.prepare(
+      `INSERT INTO monitors
+        (id, name, url, enabled, position, created_at, updated_at, deleted_at)
+       VALUES ('main', 'Main', 'https://private.example/health', 1, 0, 1, 1, NULL)`,
+    ).run();
+    const state = createAppState();
+    const runtime = createRuntimeState(null);
+    runtime.status = "up";
+    runtime.lastCheckedAt = now;
+    runtime.lastLatencyMs = 25;
+    runtime.lastStatusCode = null;
+    runtime.lastError = "Network request failed";
+    runtime.consecutiveFailures = 1;
+    runtime.tentativeFailureAt = now;
+    runtime.tentativeFailureError = "Network request failed";
+    runtime.tentativeFailureStatusCode = null;
+    state.monitors.main = runtime;
+    await env.DB.prepare("UPDATE app_state SET payload = ? WHERE id = 1")
+      .bind(encodeAppState(state))
+      .run();
+
+    const response = await SELF.fetch("https://status.example/api/status");
+
+    expect(await response.json()).toMatchObject({
+      overallStatus: "operational",
+      monitors: [{ id: "main", status: "up", latencyMs: 25 }],
+    });
+  });
+
   it("returns bounded five-minute history including the active bucket", async () => {
     const now = Date.now();
     const current = Math.floor(now / 300_000) * 300_000;
@@ -351,6 +382,17 @@ describe("public status", () => {
     });
     expect(hidden.status).toBe(404);
     expect(await hidden.text()).not.toContain("hidden.example");
+  });
+
+  it("treats malformed history ids as missing monitors", async () => {
+    const response = await SELF.fetch(
+      "https://status.example/api/monitors/%zz/history?range=24h",
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: { code: "not_found", message: "Monitor not found" },
+    });
   });
 
   it("enforces the non-deleted monitor cap atomically in D1", async () => {

@@ -118,6 +118,21 @@ function historyPlans(
   return plans;
 }
 
+function purgePlans(monitorIds: readonly string[]): SqlStatementPlan[] {
+  if (monitorIds.length === 0) return [];
+  const placeholders = monitorIds.map(() => "?").join(", ");
+  return [
+    {
+      sql: `DELETE FROM history_5m WHERE monitor_id IN (${placeholders})`,
+      bindings: [...monitorIds],
+    },
+    {
+      sql: `DELETE FROM history_1h WHERE monitor_id IN (${placeholders})`,
+      bindings: [...monitorIds],
+    },
+  ];
+}
+
 function cleanupPlans(cleanupDay: number | null): SqlStatementPlan[] {
   if (cleanupDay === null) return [];
   return [
@@ -169,6 +184,7 @@ export function planScheduledPersistence(
       "hour_start",
       input.reduced.hourlyRows,
     ),
+    ...purgePlans(input.reduced.purgeMonitorIds),
     ...cleanupPlans(input.cleanupDay),
     ...outboxPlans(input.outboxEntry),
     {
