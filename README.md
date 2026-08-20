@@ -4,6 +4,10 @@ A self-hosted public status page and uptime monitor for Cloudflare Workers. It c
 
 The application has no browser administration or authentication. A trusted operator manages monitor configuration with the interactive Bun CLI.
 
+## Demo
+
+[View the public demo](https://edge-uptime.jewei-mak.workers.dev/) to see the status page.
+
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.3 or later
