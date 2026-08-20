@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="color-scheme" content="light" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="Current service availability" />
     <title>System Status</title>
     <link rel="stylesheet" href="/src/web/styles.css" />
@@ -15,7 +15,12 @@
           <p class="wordmark" id="site-name">System Status</p>
           <p class="description" id="site-description">Current service availability</p>
         </div>
-        <p class="updated-at" id="generated-at" aria-live="polite">Connecting…</p>
+        <div class="masthead-meta">
+          <p class="updated-at" id="generated-at" aria-live="polite">Connecting…</p>
+          <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+            Dark mode
+          </button>
+        </div>
       </header>
 
       <section class="status-grid" aria-label="Service status workspace">

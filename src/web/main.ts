@@ -11,6 +11,13 @@ import {
   type PublicMonitor,
   type StatusResponse,
 } from "./status-ui";
+import {
+  COLOR_THEME_STORAGE_KEY,
+  nextColorTheme,
+  parseColorTheme,
+  resolveColorTheme,
+  type ColorTheme,
+} from "./theme";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const CHART_WIDTH = 720;
@@ -39,6 +46,50 @@ function element<T extends HTMLElement = HTMLElement>(id: string): T {
   const found = document.querySelector<T>(`#${id}`);
   if (found === null) throw new Error(`Missing page element: ${id}`);
   return found;
+}
+
+function storedColorTheme(): ColorTheme | null {
+  try {
+    return parseColorTheme(window.localStorage.getItem(COLOR_THEME_STORAGE_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function storeColorTheme(theme: ColorTheme): void {
+  try {
+    window.localStorage.setItem(COLOR_THEME_STORAGE_KEY, theme);
+  } catch {
+    // Theme switching still works when browser storage is unavailable.
+  }
+}
+
+function setupThemeToggle(): void {
+  const toggle = element<HTMLButtonElement>("theme-toggle");
+  const systemPreference = window.matchMedia("(prefers-color-scheme: dark)");
+  let preference = storedColorTheme();
+
+  const apply = (): void => {
+    if (preference === null) delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = preference;
+    const effectiveTheme = resolveColorTheme(preference, systemPreference.matches);
+    toggle.setAttribute("aria-pressed", String(effectiveTheme === "dark"));
+  };
+
+  toggle.addEventListener("click", () => {
+    preference = nextColorTheme(resolveColorTheme(preference, systemPreference.matches));
+    storeColorTheme(preference);
+    apply();
+  });
+  systemPreference.addEventListener("change", () => {
+    if (preference === null) apply();
+  });
+  window.addEventListener("storage", (event) => {
+    if (event.key !== COLOR_THEME_STORAGE_KEY) return;
+    preference = parseColorTheme(event.newValue);
+    apply();
+  });
+  apply();
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(
@@ -414,6 +465,7 @@ for (const button of document.querySelectorAll<HTMLButtonElement>("[data-range]"
   });
 }
 
+setupThemeToggle();
 void loadStatus().catch(renderStatusError);
 window.setInterval(() => {
   void loadStatus().catch(renderStatusError);

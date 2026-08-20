@@ -9,6 +9,8 @@ describe("public page shell", () => {
     expect(html.match(/rel="stylesheet"/gu)).toHaveLength(1);
     expect(html).toContain('class="status-grid"');
     expect(html).toContain('class="footer foot-line"');
+    expect(html).toContain('content="light dark"');
+    expect(html).toContain('id="theme-toggle"');
     expect(html).toContain('id="summary"');
     expect(html).toContain('id="monitor-content"');
     expect(html).toContain('id="history-content"');
@@ -29,6 +31,8 @@ describe("public page shell", () => {
     expect(styles).toContain("overflow-x: clip");
     expect(styles).toContain(":focus-visible");
     expect(styles).toContain("prefers-reduced-motion: reduce");
+    expect(styles).toContain("prefers-color-scheme: dark");
+    expect(styles).toContain(':root[data-theme="dark"]');
     expect(styles).not.toMatch(/#[\da-f]{3,8}|\brgb\(|\bhsl\(/iu);
     expect(headers).toContain("Content-Security-Policy:");
     expect(headers).toContain("X-Content-Type-Options: nosniff");
