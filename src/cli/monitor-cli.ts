@@ -16,6 +16,22 @@ export interface MonitorCliDependencies {
   randomId(): string;
 }
 
+const HELP = `Usage: bun run monitor -- <command> <--local|--remote>
+
+Commands:
+  list [--show-urls]       List monitors with URLs redacted by default
+  add                      Add a monitor interactively
+  edit MONITOR_ID          Replace a monitor's configuration
+  enable MONITOR_ID        Enable a monitor
+  disable MONITOR_ID       Disable a monitor
+  order MONITOR_ID         Change a monitor's display position
+  delete MONITOR_ID        Soft-delete a monitor
+
+Options:
+  --local                  Use the local D1 database
+  --remote                 Use the deployed D1 database
+  -h, --help               Show this help`;
+
 function parseTarget(args: string[]): DatabaseTarget | null {
   const local = args.includes("--local");
   const remote = args.includes("--remote");
@@ -272,6 +288,11 @@ export async function runMonitorCli(
   args: string[],
   dependencies: MonitorCliDependencies,
 ): Promise<number> {
+  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+    dependencies.write(HELP);
+    return 0;
+  }
+
   const target = parseTarget(args);
   if (target === null) {
     dependencies.write("Choose exactly one database target: --local or --remote");

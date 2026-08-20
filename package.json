@@ -12,6 +12,7 @@
     "verify": "bun run scripts/verify.ts",
     "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run verify",
     "db:migrate:local": "wrangler d1 migrations apply edge-uptime --local",
+    "setup": "bun run scripts/setup.ts",
     "monitor": "bun run scripts/monitor.ts"
   },
   "devDependencies": {

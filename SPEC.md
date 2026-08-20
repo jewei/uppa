@@ -31,6 +31,7 @@ Cron */1 ──▶ lease ──▶ probe pool ──▶ reduce ──▶ D1 tran
                                                   │
                                                   └──▶ outbox delivery
 Operator ──▶ interactive Bun CLI ──▶ Wrangler ──▶ D1 configuration
+Operator ──▶ interactive setup ──▶ Wrangler ──▶ D1 resource + deployment
 ```
 
 Locked choices:
@@ -43,6 +44,8 @@ Locked choices:
 - Monitor configuration is relational. Current monitoring truth, active aggregation, and rolling uptime counters are one versioned packed D1 row.
 - Five-minute and hourly history, incidents, and notification outbox are relational.
 - Cron is the only writer of monitoring truth. The CLI writes configuration only.
+- Setup coordinates user-confirmed Wrangler resource, migration, deployment, and
+  secret commands. It does not receive secret values or write monitoring truth.
 
 ## 3. Hard limits
 
@@ -254,6 +257,14 @@ Seed `id = 1`.
 
 Provide interactive Bun commands to list, add, edit, enable, disable, and soft-delete monitors. Every mutating command requires exactly one explicit target: `--local` or `--remote`.
 
+Provide a separate interactive setup command for the first deployment. It checks
+Wrangler authentication, creates or reuses the named D1 database, writes only the
+database ID and public site identity to `wrangler.jsonc`, applies migrations,
+deploys, and optionally starts Wrangler secret and monitor configuration. Every
+remote mutation requires operator confirmation. Setup must reject non-interactive
+use, never receive or print a secret value, and be safe to run again after a
+partial setup.
+
 - No checked-in monitor configuration or URL.
 - Prompt for private URLs rather than accepting them as positional command arguments.
 - Redact URLs in list output unless `--show-urls` is explicit.
@@ -463,7 +474,7 @@ bun run build
 bun run check
 ```
 
-V1 is done only when all pass, migrations apply to fresh local D1, local Worker+SPA starts, scheduled tests need no Internet, public artifacts contain no URL/secret, the query/subrequest budgets are proven, and `README.md` documents Bun, CLI configuration, D1, secrets, local development, Free-plan caveats, and user-run deployment without performing remote actions.
+V1 is done only when all pass, migrations apply to fresh local D1, local Worker+SPA starts, scheduled tests need no Internet, public artifacts contain no URL/secret, the query/subrequest budgets are proven, and `README.md` plus its linked operator documents cover Bun, CLI configuration, D1, secrets, local development, Free-plan caveats, and user-confirmed deployment.
 
 ## 14. Out of scope
 

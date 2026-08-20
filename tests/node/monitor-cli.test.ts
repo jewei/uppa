@@ -13,6 +13,22 @@ function dependencies(): MonitorCliDependencies {
 }
 
 describe("monitor CLI", () => {
+  it.each([[[]], [["--help"]], [["-h"]]])(
+    "shows help without a database target",
+    async (args) => {
+      const deps = dependencies();
+
+      const exitCode = await runMonitorCli(args, deps);
+
+      expect(exitCode).toBe(0);
+      expect(deps.execute).not.toHaveBeenCalled();
+      expect(deps.confirm).not.toHaveBeenCalled();
+      expect(deps.write).toHaveBeenCalledWith(
+        expect.stringContaining("Usage: bun run monitor"),
+      );
+    },
+  );
+
   it.each([
     ["no target", ["list"]],
     ["both targets", ["list", "--local", "--remote"]],
