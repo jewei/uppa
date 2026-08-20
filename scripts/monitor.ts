@@ -18,8 +18,16 @@ try {
     randomId: () => crypto.randomUUID(),
   });
   process.exitCode = exitCode;
-} catch {
-  console.error("Monitor command failed");
+} catch (error) {
+  // Print the message, never the error object. A stack would expose file paths
+  // and, worse, an attached stdout that can contain the SQL and therefore the
+  // monitor URLs. The message is already sanitised by sanitizedWranglerError,
+  // which extracts the Cloudflare API's diagnosis and drops everything else.
+  console.error(
+    error instanceof Error && error.message !== ""
+      ? `Monitor command failed: ${error.message}`
+      : "Monitor command failed",
+  );
   process.exitCode = 1;
 } finally {
   terminal.close();

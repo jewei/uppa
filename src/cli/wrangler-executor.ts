@@ -76,10 +76,72 @@ function describesMonitorLimit(value: unknown): boolean {
   );
 }
 
+/**
+ * Pull the Cloudflare API's own diagnosis out of Wrangler's output.
+ *
+ * Wrangler reports API failures as JSON carrying `error.notes[].text` and
+ * `error.code`, which name the problem exactly: a missing database, a
+ * permissions failure, a malformed statement. None of that is a monitor URL, a
+ * credential, or SQL, so it is safe under docs/security.md.
+ *
+ * Raw stdout and stderr are never returned. Those can carry the SQL, and the
+ * SQL carries monitor URLs.
+ */
+function describeApiFailure(value: unknown): string | null {
+  const extra = value as { stdout?: unknown; stderr?: unknown };
+  const streams = [extra.stdout, extra.stderr].filter(
+    (stream): stream is string => typeof stream === "string",
+  );
+
+  for (const stream of streams) {
+    // Wrangler pretty-prints its JSON, so the opening brace and the "error"
+    // key are separated by a newline and indentation. Matching only the
+    // compact `{"error"` silently found nothing against real output.
+    const match = /\{\s*"error"\s*:/u.exec(stream);
+    if (match === null) continue;
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(stream.slice(match.index)) as unknown;
+    } catch {
+      continue;
+    }
+
+    const error = (payload as { error?: unknown }).error;
+    if (typeof error !== "object" || error === null) continue;
+
+    const record = error as { notes?: unknown; code?: unknown };
+    const notes = Array.isArray(record.notes)
+      ? record.notes
+          .map((note) => (note as { text?: unknown }).text)
+          .filter((text): text is string => typeof text === "string")
+      : [];
+
+    if (notes.length === 0) continue;
+
+    const described = notes.join("; ");
+
+    // Cloudflare usually spells the code into the note already. Only add it
+    // when it is missing, so the message does not say 7404 twice.
+    return typeof record.code === "number" && !described.includes(String(record.code))
+      ? `${described} (Cloudflare API code ${String(record.code)})`
+      : described;
+  }
+
+  return null;
+}
+
 function sanitizedWranglerError(error: unknown): Error {
   if (error instanceof Error && error.message === "monitor_limit") return error;
   if (describesMonitorLimit(error)) return new Error("monitor_limit");
-  return new Error("Wrangler D1 command failed");
+
+  const described = describeApiFailure(error);
+
+  return new Error(
+    described === null
+      ? "Wrangler D1 command failed"
+      : `Wrangler D1 command failed: ${described}`,
+  );
 }
 
 export async function executeWranglerSql(

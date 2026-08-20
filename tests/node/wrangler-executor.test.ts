@@ -118,3 +118,94 @@ describe("Wrangler D1 executor", () => {
     ).rejects.toThrow("Wrangler D1 command failed");
   });
 });
+
+
+/** Runs an operation expected to reject, and returns the Error it threw. */
+async function captureFailure(operation: () => Promise<unknown>): Promise<Error> {
+  try {
+    await operation();
+  } catch (error) {
+    return error as Error;
+  }
+  throw new Error("Expected the operation to reject");
+}
+
+describe("Wrangler failure reporting", () => {
+  // Verbatim shape of real Wrangler output, pretty-printed. An earlier version
+  // of this fixture used JSON.stringify, which is compact, and it passed
+  // against an implementation that only matched the compact form. The test
+  // agreed with the code and both were wrong about the world.
+  const cloudflareFailure = `{
+  "error": {
+    "text": "A request to the Cloudflare API (/accounts/acct/d1/database/db/query) failed.",
+    "notes": [
+      {
+        "text": "The database db could not be found [code: 7404]"
+      }
+    ],
+    "kind": "error",
+    "name": "APIError",
+    "code": 7404
+  }
+}`;
+
+  it("surfaces the Cloudflare API diagnosis instead of a generic failure", async () => {
+    // A placeholder database id in wrangler.jsonc produced exactly this, and
+    // the generic message sent the operator looking at the wrong command for
+    // an hour. The API already says what is wrong; the CLI just threw it away.
+    await expect(
+      executeWranglerSql("remote", "SELECT 1;", {
+        spawn: async () => {
+          throw Object.assign(new Error("Command failed"), {
+            stdout: cloudflareFailure,
+            stderr: "",
+          });
+        },
+      }),
+    ).rejects.toThrow(/could not be found \[code: 7404\]/u);
+  });
+
+  it("never leaks the SQL, which carries monitor URLs", async () => {
+    // The guard that matters. Monitor URLs are private by design, they live in
+    // the SQL, and an error path is the easiest place to spill them.
+    const sql = "INSERT INTO monitors (url) VALUES ('https://private.example/health');";
+
+    const failure = await captureFailure(() =>
+      executeWranglerSql("remote", sql, {
+        spawn: async () => {
+          throw Object.assign(new Error("Command failed"), {
+            stdout: `${sql}\n${cloudflareFailure}`,
+            stderr: sql,
+          });
+        },
+      }),
+    );
+
+    expect(failure.message).not.toContain("private.example");
+    expect(failure.message).not.toContain("INSERT INTO");
+    expect(failure.message).toContain("could not be found");
+  });
+
+  it("does not print the same error code twice", async () => {
+    // Cloudflare usually spells the code into the note text already.
+    const failure = await captureFailure(() =>
+      executeWranglerSql("remote", "SELECT 1;", {
+        spawn: async () => {
+          throw Object.assign(new Error("Command failed"), { stdout: cloudflareFailure });
+        },
+      }),
+    );
+
+    expect(failure.message.match(/7404/gu)).toHaveLength(1);
+  });
+
+  it("falls back to the generic message when there is nothing to report", async () => {
+    await expect(
+      executeWranglerSql("remote", "SELECT 1;", {
+        spawn: async () => {
+          throw Object.assign(new Error("Command failed"), { stdout: "network unreachable" });
+        },
+      }),
+    ).rejects.toThrow("Wrangler D1 command failed");
+  });
+});
