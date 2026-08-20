@@ -18,19 +18,24 @@
         <p class="updated-at" id="generated-at" aria-live="polite">Connecting…</p>
       </header>
 
-      <section class="summary" id="summary" aria-labelledby="summary-title" aria-live="polite">
-        <div class="summary-copy">
-          <span class="status-mark" id="status-mark" aria-hidden="true"></span>
-          <div>
-            <h1 id="summary-title">Checking current status</h1>
-            <p id="summary-detail">Waiting for the latest scheduled checks.</p>
+      <section class="status-grid" aria-label="Service status workspace">
+        <section
+          class="summary bento-tile bento-summary"
+          id="summary"
+          aria-labelledby="summary-title"
+          aria-live="polite"
+        >
+          <div class="summary-copy">
+            <span class="status-mark" id="status-mark" aria-hidden="true"></span>
+            <div>
+              <h1 id="summary-title">Checking current status</h1>
+              <p id="summary-detail">Waiting for the latest scheduled checks.</p>
+            </div>
           </div>
-        </div>
-        <p class="summary-state" id="summary-state">Unknown</p>
-      </section>
+          <p class="summary-state" id="summary-state">Unknown</p>
+        </section>
 
-      <section class="workspace" aria-label="Service status workspace">
-        <section class="monitor-section" aria-labelledby="monitors-title">
+        <section class="monitor-section bento-tile bento-monitors" aria-labelledby="monitors-title">
           <div class="section-heading">
             <div>
               <h2 id="monitors-title">Monitors</h2>
@@ -44,7 +49,7 @@
           </div>
         </section>
 
-        <section class="history-section" aria-labelledby="history-title">
+        <section class="history-section bento-tile bento-history" aria-labelledby="history-title">
           <div class="section-heading">
             <div>
               <h2 id="history-title">Latency history</h2>
@@ -63,24 +68,23 @@
             </div>
           </div>
         </section>
-      </section>
-
-      <section class="incident-section" aria-labelledby="incidents-title">
-        <div class="section-heading">
-          <div>
-            <h2 id="incidents-title">Recent incidents</h2>
-            <p>Confirmed outages and how they ended.</p>
+        <section class="incident-section bento-tile bento-incidents" aria-labelledby="incidents-title">
+          <div class="section-heading">
+            <div>
+              <h2 id="incidents-title">Recent incidents</h2>
+              <p>Confirmed outages and how they ended.</p>
+            </div>
+            <p class="section-count" id="incident-count">—</p>
           </div>
-          <p class="section-count" id="incident-count">—</p>
-        </div>
-        <div id="incident-content" class="incident-list" aria-live="polite" aria-busy="true">
-          <div class="skeleton-row" aria-hidden="true"></div>
-        </div>
+          <div id="incident-content" class="incident-list" aria-live="polite" aria-busy="true">
+            <div class="skeleton-row" aria-hidden="true"></div>
+          </div>
+        </section>
       </section>
     </main>
 
-    <footer class="footer">
-      <p>Observed checks only</p>
+    <footer class="footer foot-line">
+      <p><strong>Observed checks only.</strong></p>
       <p>Missed schedules and disabled periods are excluded from uptime.</p>
     </footer>
 

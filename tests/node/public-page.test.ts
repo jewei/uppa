@@ -6,6 +6,9 @@ describe("public page shell", () => {
     const html = await readFile("index.html", "utf8");
 
     expect(html).toContain('<main class="shell">');
+    expect(html.match(/rel="stylesheet"/gu)).toHaveLength(1);
+    expect(html).toContain('class="status-grid"');
+    expect(html).toContain('class="footer foot-line"');
     expect(html).toContain('id="summary"');
     expect(html).toContain('id="monitor-content"');
     expect(html).toContain('id="history-content"');
@@ -22,6 +25,7 @@ describe("public page shell", () => {
     ]);
 
     expect(styles).toContain("--color-accent: oklch(");
+    expect(styles).toContain("macrostructure: Bento Grid");
     expect(styles).toContain("overflow-x: clip");
     expect(styles).toContain(":focus-visible");
     expect(styles).toContain("prefers-reduced-motion: reduce");
