@@ -1,13 +1,13 @@
 import type { NotificationChange } from "./reduce";
 
-export interface WebhookChangeDto {
+interface WebhookChangeDto {
   monitorName: string;
   status: "down" | "recovered";
   startedAt: string;
   changedAt: string;
 }
 
-export interface WebhookPayloadDto {
+interface WebhookPayloadDto {
   version: 1;
   type: "uptime.state_changes";
   createdAt: string;
@@ -38,7 +38,7 @@ export interface DeliveryUpdate extends DueOutboxRow {
 const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const;
 const MAX_RETRY_DELAY_MS = 6 * 60 * 60_000;
 const MAX_OUTBOX_ATTEMPTS = 20;
-export const WEBHOOK_TIMEOUT_MS = 8_000;
+const WEBHOOK_TIMEOUT_MS = 8_000;
 
 export interface WebhookDependencies {
   fetcher: typeof fetch;

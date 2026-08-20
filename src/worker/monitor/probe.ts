@@ -1,6 +1,6 @@
 import type { ProbeResult } from "./state";
 
-export const PROBE_TIMEOUT_MS = 8_000;
+const PROBE_TIMEOUT_MS = 8_000;
 
 export interface ProbeDependencies {
   fetcher: typeof fetch;

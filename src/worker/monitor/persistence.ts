@@ -8,7 +8,7 @@ import type {
   ReducedScheduledRun,
 } from "./reduce";
 
-export type SqlBinding = string | number | null;
+type SqlBinding = string | number | null;
 
 export interface SqlStatementPlan {
   sql: string;

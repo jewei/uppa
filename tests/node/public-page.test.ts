@@ -16,18 +16,16 @@ describe("public page shell", () => {
   });
 
   it("keeps responsive, focus, reduced-motion, and static security safeguards", async () => {
-    const [styles, tokens, headers] = await Promise.all([
+    const [styles, headers] = await Promise.all([
       readFile("src/web/styles.css", "utf8"),
-      readFile("tokens.css", "utf8"),
       readFile("public/_headers", "utf8"),
     ]);
 
-    expect(styles.startsWith("/* Hallmark")).toBe(true);
+    expect(styles).toContain("--color-accent: oklch(");
     expect(styles).toContain("overflow-x: clip");
     expect(styles).toContain(":focus-visible");
     expect(styles).toContain("prefers-reduced-motion: reduce");
     expect(styles).not.toMatch(/#[\da-f]{3,8}|\brgb\(|\bhsl\(/iu);
-    expect(tokens).toContain("--color-accent: oklch(");
     expect(headers).toContain("Content-Security-Policy:");
     expect(headers).toContain("X-Content-Type-Options: nosniff");
     expect(headers).toContain("X-Frame-Options: DENY");

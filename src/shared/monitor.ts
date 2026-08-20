@@ -1,6 +1,5 @@
-export const MAX_MONITORS = 40;
-export const MAX_MONITOR_NAME_LENGTH = 100;
-export const MAX_MONITOR_URL_LENGTH = 2048;
+const MAX_MONITOR_NAME_LENGTH = 100;
+const MAX_MONITOR_URL_LENGTH = 2048;
 
 export interface MonitorInput {
   name: string;
@@ -9,15 +8,13 @@ export interface MonitorInput {
   enabled: boolean;
 }
 
-export type ValidMonitorInput = MonitorInput;
-
-export interface MonitorValidationError {
+interface MonitorValidationError {
   field: keyof MonitorInput;
   message: string;
 }
 
 export type MonitorValidationResult =
-  | { ok: true; value: ValidMonitorInput }
+  | { ok: true; value: MonitorInput }
   | { ok: false; errors: MonitorValidationError[] };
 
 const RESERVED_IPV4_RANGES = [

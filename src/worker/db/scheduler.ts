@@ -11,8 +11,8 @@ import type {
 import type { AppStateV1 } from "../monitor/state";
 import { loadMonitorConfigs } from "./monitors";
 
-export const SCHEDULER_LEASE_MS = 120_000;
-export const SCHEDULED_D1_QUERY_BUDGET = 40;
+const SCHEDULER_LEASE_MS = 120_000;
+const SCHEDULED_D1_QUERY_BUDGET = 40;
 
 interface ExpiredRow {
   monitor_id: unknown;

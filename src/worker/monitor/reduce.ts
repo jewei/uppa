@@ -45,7 +45,7 @@ export interface IncidentOpen {
   lastStatusCode: number | null;
 }
 
-export type IncidentEndReason = "recovered" | "disabled" | "deleted";
+type IncidentEndReason = "recovered" | "disabled" | "deleted";
 
 export interface IncidentClosure {
   id: string;

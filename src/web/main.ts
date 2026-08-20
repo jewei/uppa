@@ -208,8 +208,6 @@ function renderIncidents(incidents: PublicIncident[]): void {
 
 function renderSummary(status: StatusResponse): void {
   const summary = summaryFor(status.overallStatus);
-  const container = element("summary");
-  container.className = `summary summary--${status.overallStatus}`;
   element("summary-title").textContent = summary.title;
   element("summary-detail").textContent = summary.detail;
   element("summary-state").textContent = status.overallStatus;
@@ -375,8 +373,6 @@ function renderStatus(status: StatusResponse): void {
 }
 
 function renderStatusError(): void {
-  const summary = element("summary");
-  summary.className = "summary summary--error";
   element("summary-title").textContent = "Status unavailable";
   element("summary-detail").textContent = "The latest status response could not be loaded.";
   element("summary-state").textContent = "Error";

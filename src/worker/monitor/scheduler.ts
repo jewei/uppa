@@ -14,9 +14,8 @@ import {
 import type { ProbeResult } from "./state";
 
 export type { WebhookRuntime } from "../db/outbox";
-export { SCHEDULED_D1_QUERY_BUDGET, SCHEDULER_LEASE_MS } from "../db/scheduler";
 
-export const PROBE_CONCURRENCY = 5;
+const PROBE_CONCURRENCY = 5;
 
 export interface RunScheduledInput {
   database: D1Database;

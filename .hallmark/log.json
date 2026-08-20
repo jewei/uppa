@@ -1,9 +1,0 @@
-[
-  {
-    "date": "2026-08-19",
-    "macrostructure": "Workbench",
-    "theme": "Cobalt",
-    "enrichment": "none",
-    "brief": "Read-only uptime status workspace with monitor history and incidents"
-  }
-]

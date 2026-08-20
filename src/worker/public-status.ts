@@ -30,7 +30,7 @@ function uptime(count: RollingCount): number | null {
   return count.checks === 0 ? null : (count.successes / count.checks) * 100;
 }
 
-export function overallStatusFor(
+function overallStatusFor(
   monitors: readonly Pick<PublicMonitorDto, "status">[],
 ): OverallStatus {
   if (monitors.some((monitor) => monitor.status === "down")) return "degraded";

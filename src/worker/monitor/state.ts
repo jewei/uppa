@@ -15,7 +15,7 @@ export type ProbeResult =
       error: ProbeError;
     };
 
-export interface Aggregate {
+interface Aggregate {
   checks: number;
   successes: number;
   failures: number;

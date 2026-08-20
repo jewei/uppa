@@ -1,9 +1,0 @@
-{
-  "date": "2026-08-19",
-  "framework": "vanilla TypeScript and Vite",
-  "fontStack": "system sans with a monospace display register",
-  "palette": "existing restrained neutral green replaced by tokenized cool technical neutrals",
-  "motion": "motion-cut; no animation dependency",
-  "spacing": "4-point semantic token scale",
-  "preserved": ["restrained tone", "read-only information hierarchy", "no UI dependency"]
-}

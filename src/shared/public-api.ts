@@ -1,7 +1,7 @@
 export type MonitoringStatus = "pending" | "up" | "down";
 export type OverallStatus = "operational" | "degraded" | "unknown";
 export type HistoryRange = "24h" | "7d" | "30d";
-export type IncidentEndReason = "recovered" | "disabled" | "deleted";
+type IncidentEndReason = "recovered" | "disabled" | "deleted";
 
 export interface PublicMonitorDto {
   id: string;
