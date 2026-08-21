@@ -54,6 +54,7 @@ Commit `bun.lock`; never use npm, pnpm, Yarn, or Bun-only server APIs in Worker 
 
 ## Security
 
+- Commit Cloudflare resource identifiers required by `wrangler.jsonc`, including the D1 `database_id`. These identifiers are not credentials. Never commit API tokens, Worker secrets, webhook URLs, or monitor URLs.
 - Worker secrets never enter source, Wrangler config, fixtures, screenshots, logs, public DTOs, cache entries, or frontend builds.
 - CLI URLs are interactive/redacted; remote/destructive operations require explicit target and confirmation; private temporary SQL files are removed in `finally`.
 - Logs omit full URLs, raw exceptions, stacks, bodies, credentials, environment dumps, and SQL containing URLs.

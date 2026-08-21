@@ -13,7 +13,8 @@
 		{
 			"binding": "DB",
 			"database_name": "edge-uptime",
-			"database_id": "00000000-0000-0000-0000-000000000000",
+			// Public Cloudflare resource identifier. This value is not a credential.
+			"database_id": "f2d51210-ac82-4499-b759-dbc7440298cf",
 			"migrations_dir": "migrations"
 		}
 	],
